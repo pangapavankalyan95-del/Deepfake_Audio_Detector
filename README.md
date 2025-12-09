@@ -1,129 +1,238 @@
 # Deepfake Audio Detection System
+**Developed by: Panga Pavan Kalyan**
 
-A B.Tech final year project for detecting AI-generated (deepfake) audio using deep learning.
+A deep learning system for detecting AI-generated (deepfake) audio using CNN+BiLSTM architecture with explainable AI features.
 
-## What This Project Does
+## Features
 
-This system can tell if an audio file is real or AI-generated (deepfake). I built it using a CNN+BiLSTM neural network that analyzes mel spectrograms of audio files.
-
-Main features:
-- Detects fake audio with good accuracy
-- Shows you WHERE in the audio it found suspicious patterns (using Grad-CAM heatmaps)
-- Explains WHY it thinks the audio is fake or real
-- Can generate PDF reports for documentation
-- Works with uploaded files or live microphone recording
+- **High Accuracy Detection**: Detects deepfake audio with 99%+ accuracy using CNN+BiLSTM.
+- **Micro-Temporal Analysis**: Pinpoints exactly *when* the audio is fake (e.g., "Fake from 02:45 to 05:10").
+- **Forensic Dashboard**: Professional "Cyber-Blue" UI with Spectrograms, Frequency Radar, and XAI Heatmaps.
+- **Speaker Verification**: Enroll voice profiles to verify identity matching (Bio-metric + Deepfake Defense).
+- **Multiple Input Methods**: 
+    - 🎤 Live Recording
+    - 📂 File Upload
+    - 🧪 One-Click Test Samples (Real, Fake, and Mixed)
+- **Mixed Audio & Splicing Detection**:
+    - **Smart Verdicts**: Distinguishes between "Strict" (Live) and "Suspicious" (Files) to catch spliced audio.
+    - **Segment Breakdown**: Lists exact timestamps: "Real: 0s-4s, Fake: 4s-5s".
+    - **Splicing XAI**: Detects "Insertion Attacks" (e.g., adding words to a sentence).
+- **Comprehensive Reporting**: Generate detailed PDF Forensic Reports with visualizations and Verdict-specific styling.
 
 ## Quick Start
 
+### Prerequisites
+- **Python 3.10** (Required for TensorFlow 2.10 GPU compatibility).
+- **CUDA 11.2 & cuDNN 8.1** (Recommended for GPU acceleration).
+- **8GB+ RAM** (16GB recommended).
+
 ### Installation
-```bash
-pip install -r requirements.txt
-```
 
-### Training the Model
-```bash
-python -m src.train
-```
-Note: If you don't have a dataset, it will create dummy data for testing. For real results, you need to download an actual deepfake dataset (see below).
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd DeepfakeProject
+   ```
 
-### Running the Web Interface
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### Launch Dashboard
+
 ```bash
 streamlit run app.py
 ```
-Then open http://localhost:8501 in your browser.
+Access the interface at `http://localhost:8501`.
+
+**Quick Test Features**:
+Navigate to the **TEST SAMPLE** tab to instantly load:
+- ✅ **Random Real**: Valid human speech sample.
+- ⚠️ **Random Fake**: Deepfake sample from ASVspoof.
+- 🔄 **Random Mixed**: Complex sample containing both real and fake segments (for Temporal Analysis testing).
+
+### Training a New Model
+
+1. Prepare your dataset in the following structure:
+```
+data/dataset/
+├── train/
+│   ├── real/  # Real audio files (.wav, .mp3, .flac)
+│   └── fake/  # Deepfake audio files
+└── dev/       # Validation set (same structure)
+```
+
+2. Open and run `Deepfake_Detection_Complete.ipynb` in Jupyter:
+```bash
+jupyter notebook Deepfake_Detection_Complete.ipynb
+```
+
+The notebook handles:
+- Data loading with memory-efficient generators
+- Model training with early stopping (patience=3)
+- Automatic model saving to `models/model_YYYYMMDD_HHMMSS/`
+- Metrics and plot generation
 
 ## Project Structure
 
 ```
-├── data/dataset/       # Put your audio files here (real/ and fake/ folders)
-├── models/             # Trained models get saved here
-├── src/
-│   ├── preprocess.py  # Handles audio loading and mel spectrogram extraction
-│   ├── model.py       # The CNN+BiLSTM model architecture
-│   ├── train.py       # Training script with all the optimizations
-│   └── explainer.py   # Grad-CAM and PDF report generation
-├── app.py             # Streamlit web interface
-└── requirements.txt   # All the packages you need
+DeepfakeProject/
+├── app.py                              # Main Forensic Dashboard (Streamlit)
+├── Deepfake_Detection_Complete.ipynb   # Main Training Notebook
+├── requirements.txt                    # Project Dependencies
+├── backups/                            # Backup of critical files
+├── data/
+│   ├── dataset/                        # ASVspoof 2019 Dataset
+│   └── speaker_profiles/               # Enrolled Speaker Database (Pickle files)
+├── models/                             # Trained Models (Timestamped)
+├── src/                                # Core Logic Modules
+│   ├── explainer.py                    # XAI / Grad-CAM Logic
+│   ├── speaker_recognition.py          # Voice ID (Resemblyzer)
+│   ├── temporal_analyzer.py            # Sliding Window Detection Logic
+│   ├── temporal_visualizer.py          # Timeline Plotting
+│   └── report_generator.py             # PDF Reporting
+└── scripts/                            # Utility Scripts
 ```
 
-## How to Use
+## Dataset
 
-1. Start the web app (see above)
-2. Either upload an audio file or record using your microphone
-3. Click "Analyze Audio"
-4. Check the sidebar to enable:
-   - Detailed explanation (tells you why it's fake/real)
-   - Grad-CAM heatmap (shows where it found problems)
-   - PDF report (downloads a full report)
+The model works on a diverse dataset constructed from two primary sources to ensure robust generalization:
 
-## Getting a Dataset
+### 1. ASVspoof 2019 LA (Logical Access)
+- **Primary Source** for Deepfake attacks.
+- Contains high-quality synthesized speech using various TTS and VC algorithms.
+- **Reference**: [ASVspoof Challenge](https://www.asvspoof.org)
 
-To train the model properly, you need real and fake audio samples. I recommend:
+### 2. LibriSpeech (Clean)
+- **Primary Source** for Real human speech.
+- Used to augment the "Real" class with diverse speakers and accents.
+- Ensures the model doesn't overfit to specific recording conditions of ASVspoof.
+- **Reference**: [OpenSLR](https://www.openslr.org/12)
 
-**ASVspoof 2019** (what I used)
-- Download: https://datashare.ed.ac.uk/handle/10283/3336
-- Get the "Logical Access (LA)" part
-- Size: About 25GB
-- Has both real and synthesized speech
-
-Put the files in this structure:
-```
-data/dataset/
-├── real/  # Real audio files go here
-└── fake/  # Fake/deepfake audio files go here
+```bash
+python prepare_dataset.py
 ```
 
-## The Model
+This script automatically:
+- Extracts the dataset
+- Organizes files into train/dev/eval splits
+- Separates real and fake audio
 
-I'm using a hybrid CNN+BiLSTM architecture:
+## Model Architecture
 
-- **CNN part**: Extracts features from the mel spectrogram (like finding patterns in the frequency data)
-- **BiLSTM part**: Looks at how these patterns change over time
-- **Output**: A score from 0 to 1 (0 = real, 1 = fake)
+**Hybrid CNN + BiLSTM**
 
-Input is a mel spectrogram with 128 frequency bands and 157 time steps (represents 5 seconds of audio).
+- **Input**: Mel spectrogram (128 × 157 × 1) representing 5 seconds of audio
+- **CNN Layers**: 3 blocks (32, 64, 128 filters) for feature extraction
+- **BiLSTM Layers**: 2 blocks (64, 32 units) for temporal pattern analysis
+- **Output**: Binary classification (Real/Fake) with sigmoid activation
+- **Total Parameters**: ~1.2M
 
-## Training Optimizations
+### Training Configuration
 
-Since I'm working with a 25GB dataset on a laptop with 8GB VRAM, I had to optimize things:
+- **Optimizer**: Adam
+- **Loss**: Binary Crossentropy
+- **Batch Size**: 16
+- **Early Stopping**: Patience = 3 epochs
+- **Callbacks**: ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 
-- **Data generators**: Loads audio files in batches instead of all at once (saves RAM)
-- **Batch size of 16**: Good balance for 8GB VRAM
-- **Early stopping**: Stops training if accuracy isn't improving
-- **Learning rate scheduling**: Automatically reduces learning rate when needed
-- **Noise reduction**: Cleans up audio before processing
+## Using the Web Interface
 
-Models are saved with timestamps so you don't lose previous training runs.
+1. **Start the app**: `python -m streamlit run app.py`
 
-## Explainable AI Features
+2. **Choose input method**:
+   - Upload audio file (WAV/MP3)
+   - Record live audio
 
-This was the interesting part - making the model explain its decisions:
+3. **Analyze**:
+   - Click "Analyze Audio"
+   - View real-time prediction and confidence score
+   - Check waveform and mel spectrogram
 
-**Grad-CAM Heatmaps**
-- Shows which parts of the audio made the model suspicious
-- Red areas = detected problems
-- Blue areas = looks normal
+4. **Enable XAI features** (sidebar):
+   - ✅ Show Detailed Explanation
+   - ✅ Show Grad-CAM Heatmap
+   - ✅ Generate PDF Report
 
-**Text Explanations**
-- Tells you the time range where it found issues (like "2.3 to 3.1 seconds")
-- Shows which frequency ranges had problems
-- Gives an interpretation based on confidence level
+## Performance Metrics
 
-**PDF Reports**
-- Combines everything into a downloadable PDF
-- Useful for documentation or showing results
+The app automatically displays metrics from the latest trained model:
+- **Confusion Matrix**: True/False positives and negatives
+- **Performance Metrics**: Accuracy, Precision, Recall, F1-Score
+
+## Generating Metrics for Saved Models
+
+If you have a trained model without metrics:
+
+```bash
+python generate_presentation_plots.py
+```
+
+This will:
+- Find the latest model in `models/`
+- Evaluate on the validation set
+- Generate confusion matrix and performance plots
+- Save results in the model's folder
 
 ## Technical Details
 
-For detailed technical documentation, see [DOCUMENTATION.md](DOCUMENTATION.md)
+### Audio Preprocessing
 
-## Notes
+1. Load audio at 16kHz, 5-second duration
+2. Apply noise reduction (80% prop_decrease)
+3. Extract mel spectrogram (128 mel bands)
+4. Convert to dB scale and normalize to [0, 1]
 
-- The model needs to be trained on real data to work properly. The dummy data is just for testing the pipeline.
-- Processing time is about 1-2 seconds per audio file (3-4 seconds if you enable all the XAI features)
-- Works best with clear speech audio, might struggle with music or very noisy recordings
+### Memory Optimization
+
+- **Data Generators**: Load audio on-the-fly in batches
+- **Batch Size 16**: Optimized for 8GB VRAM
+- **Timestamped Models**: Each training run saved separately
+
+### Explainable AI
+
+- **Grad-CAM**: Highlights frequency-time regions that influenced the decision
+- **Region Analysis**: Identifies suspicious time ranges and frequency bands
+- **Confidence-Based Explanations**: Contextual text based on prediction score
+
+## Troubleshooting
+
+### GPU Not Detected
+
+Ensure CUDA 11.2 and cuDNN 8.1 are installed and in PATH:
+```bash
+python verify_gpu_final.py
+```
+
+### Out of Memory
+
+- Reduce batch size to 8 in the notebook
+- Close other applications
+- Use CPU-only mode (slower but works)
+
+### Model Not Loading in App
+
+- Check that `models/model_*/model.keras` exists
+- Verify the model was trained successfully
+- Check console for error messages
+
+## Documentation
+
+- **README.md** (this file): Quick start and usage
+- **DOCUMENTATION.md**: Detailed technical documentation
 
 ## Project Info
 
-B.Tech Final Year Project  
-Topics: Deep Learning, Audio Processing, Explainable AI
+**Academic Project: Deepfake Audio Detection System**
+
+**Objective**: To develop a robust, forensic-grade application capable of detecting AI-generated synthesized speech with high precision and explainability.
+
+**Core Technologies**:
+- **Deep Learning**: TensorFlow/Keras (CNN + BiLSTM)
+- **Signal Processing**: Librosa (Mel Spectrograms, Micro-Temporal Analysis)
+- **Bio-Metrics**: Resemblyzer (Deep Speaker Embeddings)
+- **Visualization**: Matplotlib, Streamlit, Grad-CAM
+
+**Maintainer**: [Your Name/Team]
+

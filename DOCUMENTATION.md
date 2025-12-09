@@ -11,7 +11,6 @@ Detailed technical information about the deepfake audio detection system.
 6. [Code Reference](#code-reference)
 
 ---
-
 ## Model Architecture
 
 ### Overall Structure
@@ -137,7 +136,7 @@ They're better than raw audio because:
 
 ### Memory-Efficient Data Loading
 
-The main challenge was handling 25GB of audio data. I solved this with a custom data generator:
+To handle the large combined dataset (ASVspoof + LibriSpeech > 30GB), a custom data generator was implemented:
 
 ```python
 class AudioDataGenerator:
@@ -145,10 +144,10 @@ class AudioDataGenerator:
     # Loads and processes audio on-the-fly in batches
 ```
 
-This way:
-- RAM usage stays low (only 16 files at a time)
-- Can handle unlimited dataset size
-- Training is still reasonably fast
+This approach ensures:
+- **Low Memory Footprint**: Only loads `BATCH_SIZE` (16) files at a time.
+- **Scalability**: Can train on datasets of any size without RAM bottlenecks.
+- **Real-Time Augmentation**: Applies noise/effects during loading (if enabled).
 
 ### Training Configuration
 
@@ -158,8 +157,9 @@ This way:
 - Faster than 8, doesn't crash like 32
 
 **Epochs: Up to 30**
-- Usually stops around 15-20 due to early stopping
-- Early stopping patience: 5 epochs
+- Usually stops around 10-15 due to early stopping
+- **Early stopping patience: 3 epochs** (updated from 7)
+- Monitors validation accuracy
 
 **Optimizer: Adam**
 - Default learning rate (0.001)
@@ -168,15 +168,16 @@ This way:
 **Loss: Binary Crossentropy**
 - Standard for binary classification
 
-### Callbacks I Used
+### Callbacks Used
 
 **ModelCheckpoint**
 - Saves the best model during training
 - Monitors validation accuracy
-- Adds timestamp to filename so I don't lose old models
+- **Saves to timestamped folder**: `models/model_YYYYMMDD_HHMMSS/model.keras`
+- Each training run gets its own folder with metrics
 
 **EarlyStopping**
-- Stops if validation accuracy doesn't improve for 5 epochs
+- Stops if validation accuracy doesn't improve for **3 epochs**
 - Prevents overfitting
 - Restores the best weights automatically
 
@@ -188,8 +189,21 @@ This way:
 ### Data Split
 
 - 80% training
-- 20% testing
-- Stratified split (keeps class balance)
+- 20% validation
+- Random split with shuffling
+
+### Training Workflow
+
+1. Run `Deepfake_Detection_Complete.ipynb`
+2. Model trains with callbacks
+3. Best model saved to `models/model_YYYYMMDD_HHMMSS/`
+4. Metrics and plots generated automatically
+5. Results include:
+   - `model.keras` - Trained model
+   - `metrics.json` - Performance metrics
+   - `training_history.png` - Accuracy/loss curves
+   - `confusion_matrix.png` - Confusion matrix
+   - `performance_metrics.png` - Bar chart of metrics
 
 ---
 
@@ -260,6 +274,44 @@ I'm using ReportLab for PDF generation. It took a while to get the formatting ri
 
 ---
 
+## Micro-Temporal Analysis
+
+The system now goes beyond binary classification by analyzing audio in a sliding window to detect *temporally localized* deepfakes (e.g., a 2-second fake segment inside a 1-minute real recording).
+
+### Algorithm: Sliding Window & Micro-Scanning
+1.  **Window Size**: 5.0 seconds (matches training input size).
+2.  **Overlap**: 50% (2.5 seconds).
+3.  **Ping-Pong Tiling**: When analyzing short segments (<5s), the audio is mirrored (`[chunk, chunk[::-1]]`) before tiling. This ensures signal continuity at boundaries, preventing "click" artifacts that cause false positives.
+4.  **Smart Noise Reduction**: During micro-scans, a lighter Noise Reduction (0.1 strength) is applied to remove hiss without scrubbing subtle deepfake artifacts.
+5.  **Aggregation**: Predictions for overlapping regions are averaged (smoothed).
+6.  **Thresholding**: Regions consistently above 0.3 are flagged as fake.
+
+### Verdict Logic
+The system uses a smart decision tree based on input type:
+*   **Live Recording**: Strict Binary Verdict (Real/Fake). Ignores ambiguous signals to prevent false alarms from background noise.
+*   **File/Upload**: Triggers "Mixed" analysis.
+    *   **Fake Ratio > 95%**: Verdict "FAKE".
+    *   **Fake Ratio > 0%**: Verdict "SUSPICIOUS / MIXED".
+    *   **Fake Ratio = 0%**: Verdict "REAL".
+
+### Visualization Colors
+- **Dark Green**: High Confidence Real (Score ~0.0)
+- **Light Green/Beige**: Low Confidence Real (Score ~0.3-0.4). Often indicates background noise but safe content.
+- **Red**: Fake (Score > 0.5)
+
+This allows the **Timeline Visualization** in the dashboard to show a red/green curve over time, helping identifying mixed attacks.
+
+## Speaker Verification
+
+To prevent "Identity Theft" deepfakes, the system includes a bio-metric layer using **Resemblyzer**.
+
+1. **Enrollment**: Analyzes 3-5 real samples of a user to create a high-dimensional voice embedding.
+2. **Storage**: Saves profiles as encrypted Pickle files in `data/speaker_profiles`.
+3. **Verification**: During analysis, comparing the input voice against the enrolled database.
+   - **Confidence > 75%**: Confirmed Identity.
+   - **Confidence < 75%**: Unknown Speaker or Deepfake Voice Clone.
+
+
 ## Performance Notes
 
 ### Processing Times
@@ -298,35 +350,75 @@ For faster training:
 
 ## Code Reference
 
-### Main Functions
+### Main Files
 
-**preprocess.py**
+**Deepfake_Detection_Complete.ipynb**
+- Complete training pipeline in Jupyter notebook
+- Includes data loading, model building, training, and evaluation
+- Automatically generates metrics and plots
 
-`extract_mel_spectrogram(file_path, sr=16000, n_mels=128, duration=5, apply_noise_reduction=True)`
-- Loads audio and creates mel spectrogram
-- Returns: numpy array (128, 157)
+**app.py**
+- Streamlit web interface
+- Handles file upload and live recording
+- Integrates with explainer for XAI features
+- Automatically loads latest model from timestamped folders
+
+**generate_presentation_plots.py**
+- Standalone script to generate metrics for saved models
+- Evaluates model on validation set
+- Creates confusion matrix and performance plots
+- Saves results to model folder
+
+**prepare_dataset.py**
+- Organizes ASVspoof 2019 dataset
+- Extracts and splits into train/dev/eval
+- Separates real and fake audio
+
+### Key Functions
+
+**Core Logic (src/)**
+
+`TemporalAnalyzer.analyze_temporal(audio_path)`:
+- Performs the sliding window analysis.
+- Returns: List of fake segments (start_time, end_time, confidence).
+
+`SpeakerRecognizer.identify_speaker(audio_path)`:
+- Extracts voice embedding from input.
+- Computes Cosine Similarity against `data/speaker_profiles`.
+- Returns: Best match name and confidence score.
+
+`ForensicReportGenerator.generate_report(...)`:
+- Compiles Mel Spectrograms, Radar Charts, and Temporal Timelines into a professional PDF.
+
+
+**Audio Processing (in notebook and app.py)**
+
+`load_audio(file_path, sr=16000, duration=5)`
+- Loads audio and pads/truncates to fixed duration
+- Returns: numpy array
 
 `reduce_noise(audio, sr=16000)`
 - Applies noise reduction to audio
 - Returns: cleaned audio array
 
-**model.py**
+`extract_mel_spectrogram(file_path, sr=16000, n_mels=128, duration=5, apply_noise_reduction=True)`
+- Loads audio and creates mel spectrogram
+- Returns: numpy array (128, 157)
 
-`DeepfakeDetector(input_shape=(128, 157, 1))`
+**Model (in notebook)**
+
+`build_model(input_shape=(128, 157, 1))`
 - Creates the CNN+BiLSTM model
-- Call `.summary()` to see architecture
+- Returns: compiled Keras model
 
-**train.py**
+**Data Generator (in notebook)**
 
-`AudioDataGenerator(file_paths, labels, batch_size=16)`
+`AudioDataGenerator(file_paths, labels, batch_size=16, shuffle=True, augment=False)`
 - Memory-efficient data loading
 - Loads audio on-the-fly
+- Optional augmentation for training
 
-`train_pipeline()`
-- Main training function
-- Handles everything from data loading to evaluation
-
-**explainer.py**
+**Explainer (src/explainer.py)**
 
 `DeepfakeExplainer(model)`
 - Initialize with trained model
@@ -355,6 +447,7 @@ All in the respective files, but here are the key ones:
 **Training:**
 - BATCH_SIZE = 16
 - MAX_EPOCHS = 30
+- EARLY_STOPPING_PATIENCE = 3
 - LEARNING_RATE = 0.001 (Adam default)
 
 **Noise Reduction:**
@@ -363,6 +456,9 @@ All in the respective files, but here are the key ones:
 **Grad-CAM:**
 - HEATMAP_ALPHA = 0.5 (50% transparency)
 - THRESHOLD = 0.6 (for region detection)
+
+**Detection:**
+- THRESHOLD = 0.5 (fixed in app)
 
 ---
 

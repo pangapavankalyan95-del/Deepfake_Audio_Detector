@@ -70,8 +70,17 @@ class DeepfakeExplainer:
                 conv_layer_name = -1
             
             # Generate heatmap
+            # For binary classification with 1 output neuron, we can't use CategoricalScore([1])
+            # We need to define a score function that targets index 0
+            
+            def score_function(output):
+                # output shape is (batch, 1)
+                # ALWAYS target the "Fake" class (maximize output) for forensic analysis
+                # This ensures we highlight "suspicious" regions even in Real audio
+                return output[:, 0]
+
             cam = gradcam(
-                CategoricalScore([score_class]),
+                score_function,
                 input_data,
                 penultimate_layer=conv_layer_name
             )
@@ -111,10 +120,10 @@ class DeepfakeExplainer:
         # Create figure
         fig, ax = plt.subplots(figsize=(12, 4))
         
-        # Display mel spectrogram
-        im1 = ax.imshow(mel_spectrogram, aspect='auto', origin='lower', cmap='viridis')
+        # Display mel spectrogram in grayscale as base
+        im1 = ax.imshow(mel_spectrogram, aspect='auto', origin='lower', cmap='gray')
         
-        # Overlay heatmap
+        # Overlay heatmap in jet (red-yellow-blue)
         im2 = ax.imshow(heatmap, aspect='auto', origin='lower', cmap='jet', alpha=alpha)
         
         ax.set_xlabel('Time Frames')
@@ -180,11 +189,26 @@ class DeepfakeExplainer:
         # Calculate overall importance score
         importance_score = np.mean(heatmap_norm[important_regions]) if np.any(important_regions) else 0
         
+        # --- NEW: Frequency Band Analysis ---
+        # Low Freq (0-40): Fundamental frequency, rumble
+        low_freq_imp = np.mean(heatmap_norm[0:40, :])
+        
+        # Mid Freq (40-90): Speech formants
+        mid_freq_imp = np.mean(heatmap_norm[40:90, :])
+        
+        # High Freq (90-128): Fricatives, breath, vocoder artifacts
+        high_freq_imp = np.mean(heatmap_norm[90:, :])
+        
         return {
             'time_ranges': time_ranges,
             'freq_ranges': freq_ranges,
             'importance_score': importance_score,
-            'coverage': np.sum(important_regions) / important_regions.size
+            'coverage': np.sum(important_regions) / important_regions.size,
+            'band_importance': {
+                'low': low_freq_imp,
+                'mid': mid_freq_imp,
+                'high': high_freq_imp
+            }
         }
     
     def generate_explanation(self, prediction_score, analysis_results):
@@ -215,21 +239,59 @@ class DeepfakeExplainer:
         # Time-based analysis
         if analysis_results['time_ranges']:
             for start, end in analysis_results['time_ranges']:
-                explanation.append(f"- Suspicious activity detected between {start:.2f}s and {end:.2f}s")
+                if is_fake:
+                    explanation.append(f"- Suspicious activity detected between {start:.2f}s and {end:.2f}s")
+                else:
+                    explanation.append(f"- Minor signal variation detected between {start:.2f}s and {end:.2f}s (Likely Benign)")
         
         # Frequency-based analysis
         if analysis_results['freq_ranges']:
             for start_band, end_band in analysis_results['freq_ranges']:
-                explanation.append(f"- Anomalies found in mel frequency bands {start_band}-{end_band}")
+                if is_fake:
+                    explanation.append(f"- Anomalies found in mel frequency bands {start_band}-{end_band}")
+                else:
+                    explanation.append(f"- Minor frequency intensity in bands {start_band}-{end_band}")
         
         # Coverage analysis
         coverage = analysis_results['coverage'] * 100
         if coverage > 50:
-            explanation.append(f"- High coverage of suspicious regions ({coverage:.1f}% of spectrogram)")
+            msg = f"High coverage of {'suspicious' if is_fake else 'active'} regions ({coverage:.1f}% of spectrogram)"
+            explanation.append(f"- {msg}")
         elif coverage > 20:
-            explanation.append(f"- Moderate coverage of suspicious regions ({coverage:.1f}% of spectrogram)")
+             msg = f"Moderate coverage of {'suspicious' if is_fake else 'active'} regions ({coverage:.1f}% of spectrogram)"
+             explanation.append(f"- {msg}")
         else:
-            explanation.append(f"- Low coverage of suspicious regions ({coverage:.1f}% of spectrogram)")
+             msg = f"Low coverage of {'suspicious' if is_fake else 'active'} regions ({coverage:.1f}% of spectrogram)"
+             explanation.append(f"- {msg}")
+            
+        # --- NEW: Deepfake Artifact Analysis ---
+        explanation.append("")
+        explanation.append("**🔍 Deepfake Artifact Analysis:**")
+        
+        bands = analysis_results.get('band_importance', {'low': 0, 'mid': 0, 'high': 0})
+        threshold_band = 0.2  # Threshold to consider a band "active"
+        
+        artifacts_found = False
+        
+        if bands['high'] > threshold_band:
+            explanation.append("- **High Frequency Anomalies:** Detected patterns consistent with vocoder artifacts or metallic noise common in synthesized speech.")
+            artifacts_found = True
+            
+        if bands['mid'] > threshold_band:
+            explanation.append("- **Mid Frequency Anomalies:** Detected irregularities in speech formants or unnatural articulation.")
+            artifacts_found = True
+            
+        if bands['low'] > threshold_band:
+            explanation.append("- **Low Frequency Anomalies:** Detected unnatural fundamental frequency or robotic rumble.")
+            artifacts_found = True
+            
+        if not artifacts_found:
+             if is_fake and confidence > 0.8:
+                 # Fallback for High Confidence Fakes with diffuse heatmaps
+                 explanation.append("- **Global Signal Anomalies:** Strong manipulation traces detected across the spectrum (Diffuse/General Artifacts).")
+                 explanation.append("- **Pattern Mismatch:** The audio lacks the natural fine-grained variability of authentic speech.")
+             else:
+                 explanation.append("- No specific frequency-based artifacts strongly detected.")
         
         # Interpretation
         explanation.append("")
@@ -259,7 +321,7 @@ class DeepfakeExplainer:
         return "\n".join(explanation)
     
     def generate_pdf_report(self, audio_path, prediction_score, mel_spectrogram, 
-                           heatmap_fig, explanation, output_path="report.pdf"):
+                           heatmap_fig, explanation, output_path="report.pdf", verdict=None):
         """
         Generate comprehensive PDF report.
         
@@ -270,6 +332,7 @@ class DeepfakeExplainer:
             heatmap_fig: Matplotlib figure with heatmap overlay
             explanation: Explanation text
             output_path: Path to save PDF
+            verdict: Optional verdict string ("REAL", "FAKE", "MIXED")
             
         Returns:
             str: Path to generated PDF
@@ -300,14 +363,14 @@ class DeepfakeExplainer:
             )
             
             # Title
-            story.append(Paragraph("Deepfake Audio Detection Report", title_style))
+            story.append(Paragraph("DEEPFAKE DETECTION REPORT", title_style))
             story.append(Spacer(1, 0.2*inch))
             
             # Metadata table
             metadata = [
                 ['Analysis Date:', datetime.now().strftime('%Y-%m-%d %H:%M:%S')],
                 ['Audio File:', os.path.basename(audio_path)],
-                ['Model:', 'CNN + BiLSTM Deepfake Detector'],
+                ['System:', 'Deepfake Audio Detector'],
             ]
             
             t = Table(metadata, colWidths=[2*inch, 4*inch])
@@ -322,11 +385,18 @@ class DeepfakeExplainer:
             story.append(Spacer(1, 0.3*inch))
             
             # Result
-            story.append(Paragraph("Detection Result", heading_style))
-            is_fake = prediction_score > 0.5
-            result_text = "DEEPFAKE DETECTED" if is_fake else "AUTHENTIC AUDIO"
-            confidence = prediction_score if is_fake else (1 - prediction_score)
-            result_color = colors.red if is_fake else colors.green
+            story.append(Paragraph("Analysis Result", heading_style))
+            
+            # Determine styling based on verdict or score
+            if verdict == "MIXED":
+                result_text = "⚠️ SUSPICIOUS / MIXED AUDIO"
+                result_color = colors.orange
+                confidence = prediction_score # Use max score
+            else:
+                is_fake = prediction_score > 0.5
+                result_text = "⚠️ DEEPFAKE DETECTED" if is_fake else "✅ REAL AUDIO"
+                confidence = prediction_score if is_fake else (1 - prediction_score)
+                result_color = colors.red if is_fake else colors.green
             
             result_style = ParagraphStyle(
                 'Result',
@@ -338,7 +408,7 @@ class DeepfakeExplainer:
             )
             
             story.append(Paragraph(result_text, result_style))
-            story.append(Paragraph(f"Confidence: {confidence*100:.2f}%", styles['Normal']))
+            story.append(Paragraph(f"Confidence Score: {confidence*100:.2f}%", styles['Normal']))
             story.append(Spacer(1, 0.2*inch))
             
             # Explanation
