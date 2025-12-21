@@ -18,16 +18,18 @@ models/
 *.zip
 *.tar.gz
 
-# Temporary artifacts
+# Temporary artifacts & Reports
 temp_*/
 *.wav
 *.mp3
+*.flac
 debug_samples/
 output/
 backups/
 cudnn/
-Deepfake_Complete_Project_Documentation.pdf
+*.pdf
 logs/
+metrics/
 
 # IDE settings
 .vscode/

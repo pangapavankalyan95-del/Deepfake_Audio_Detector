@@ -1,0 +1,25 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+venv_gpu/
+.env
+
+# Streamlit
+.streamlit/
+
+# Training and temporary data
+data/downloads/
+data/temporal_validation/
+temp_record.wav
+temp_upload.wav
+
+# Artifacts
+brain/

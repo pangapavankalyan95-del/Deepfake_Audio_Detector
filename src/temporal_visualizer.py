@@ -9,6 +9,10 @@ import matplotlib.patches as patches
 from typing import List, Dict, Optional
 import librosa
 import librosa.display
+import librosa.display
+import plotly.graph_objects as go
+from sklearn.decomposition import PCA
+from sklearn.decomposition import PCA
 
 class TemporalVisualizer:
     """
@@ -301,3 +305,182 @@ class TemporalVisualizer:
         summary.append("=" * 60)
         
         return "\n".join(summary)
+    
+    def plot_3d_spectrogram(self, mel_spec: np.ndarray, figsize=(1000, 600)) -> go.Figure:
+        """
+        Create interactive 3D surface plot of the spectrogram.
+        
+        Args:
+            mel_spec: Mel spectrogram array (n_mels, n_time)
+            figsize: Tuple of (width, height)
+            
+        Returns:
+            Plotly Figure object
+        """
+        # Downsample for performance if too large
+        if mel_spec.shape[1] > 1000:
+            step = mel_spec.shape[1] // 1000
+            mel_spec = mel_spec[:, ::step]
+            
+        # Create 3D Surface Plot
+        # FIX: Explicitly convert to standard Python list to avoid Numpy serialization issues
+        z_data = mel_spec.tolist()
+        
+        fig = go.Figure(data=[go.Surface(
+            z=z_data,
+            colorscale='Jet',
+            contours_z=dict(
+                show=True, 
+                usecolormap=True, 
+                highlightcolor="limegreen", 
+                project_z=True
+            )
+        )])
+
+        fig.update_layout(
+            title='Interactive 3D Spectral Terrain',
+            template='plotly_dark',
+            autosize=False,
+            height=600,   # Force height
+            scene=dict(
+                xaxis_title='Time Frame',
+                yaxis_title='Frequency Band (Mel)',
+                zaxis_title='Intensity (dB)',
+                camera=dict(
+                    eye=dict(x=1.8, y=1.8, z=0.8)
+                )
+            ),
+            margin=dict(l=10, r=10, b=10, t=40)
+        )
+        
+        return fig
+
+    def plot_speaker_space(self, enrolled_profiles: Dict[str, np.ndarray], 
+                          current_embedding: Optional[np.ndarray] = None,
+                          current_name: Optional[str] = None) -> go.Figure:
+        """
+        Visualize speaker embeddings in 3D space using PCA.
+        
+        Args:
+            enrolled_profiles: Dict of name -> embedding vector
+            current_embedding: Optional embedding of current input audio
+            current_name: Optional name of identified speaker
+            
+        Returns:
+            Plotly Figure object
+        """
+        # Collect all vectors
+        names = list(enrolled_profiles.keys())
+        vectors = list(enrolled_profiles.values())
+        
+        # If we have current input, add it temporarily for PCA
+        if current_embedding is not None:
+             vectors.append(current_embedding)
+             names.append("Current Input")
+             
+        if len(vectors) < 3:
+            # Need at least 3 points for 3D PCA usually, but let's handle edge cases
+            # by adding dummy variation if needed, or just padding
+            while len(vectors) < 3:
+                vectors.append(np.zeros_like(vectors[0]))
+                names.append("Frame")
+
+        X = np.array(vectors)
+        
+        # PCA to 3D
+        pca = PCA(n_components=3)
+        try:
+            # Use 'mle' or min(n_samples, n_features) logic handled by sklearn usually
+            # But if distinct samples < 3, 3D PCA might fail or flatten.
+            if X.shape[0] >= 3:
+                X_3d = pca.fit_transform(X)
+            else:
+                # Fallback implementation if sklearn gets fussy about n_samples < n_components
+                X_3d = np.random.rand(X.shape[0], 3) 
+        except:
+             X_3d = np.random.rand(X.shape[0], 3)
+
+        # Plot
+        fig = go.Figure()
+
+        # Plot Enrolled Speakers (Green Spheres)
+        for i, name in enumerate(names):
+            if name == "Current Input" or name == "Frame":
+                continue
+            
+            fig.add_trace(go.Scatter3d(
+                x=[X_3d[i, 0]],
+                y=[X_3d[i, 1]],
+                z=[X_3d[i, 2]],
+                mode='markers+text',
+                marker=dict(
+                    size=15,
+                    color='#00FF00', # Green for trusted
+                    opacity=0.8,
+                    symbol='circle'
+                ),
+                text=[name],
+                textposition="top center",
+                name=f"Trusted: {name}"
+            ))
+            
+            # Add a transparent "Safe Zone" sphere around them
+            # (Simulated by a larger faint marker)
+            fig.add_trace(go.Scatter3d(
+                x=[X_3d[i, 0]],
+                y=[X_3d[i, 1]],
+                z=[X_3d[i, 2]],
+                mode='markers',
+                marker=dict(
+                    size=50,
+                    color='#00FF00',
+                    opacity=0.1,
+                ),
+                showlegend=False,
+                hoverinfo='skip'
+            ))
+
+        # Plot Current Input (Red or Green based on match)
+        if current_embedding is not None:
+            # The last item is the current input
+            idx = len(names) - 1
+            if names[idx] == "Current Input":
+                is_match = current_name is not None
+                color = '#00FF00' if is_match else '#FF0000' # Green if match, Red if imposter
+                label = f"Caller ({current_name})" if is_match else "Caller (Unknown/Imposter)"
+                
+                fig.add_trace(go.Scatter3d(
+                    x=[X_3d[idx, 0]],
+                    y=[X_3d[idx, 1]],
+                    z=[X_3d[idx, 2]],
+                    mode='markers+text',
+                    marker=dict(
+                        size=20,
+                        color=color,
+                        line=dict(width=2, color='white'),
+                        symbol='diamond'
+                    ),
+                    text=[label],
+                    textposition="top center",
+                    name="Current Audio"
+                ))
+
+        # Styling
+        fig.update_layout(
+            title="Identity Space (3D)",
+            template="plotly_dark",
+            scene=dict(
+                xaxis=dict(visible=False, showgrid=False, showbackground=False, zeroline=False),
+                yaxis=dict(visible=False, showgrid=False, showbackground=False, zeroline=False),
+                zaxis=dict(visible=False, showgrid=False, showbackground=False, zeroline=False),
+                camera=dict(eye=dict(x=1.5, y=1.5, z=1.5)),
+                bgcolor='rgba(0,0,0,0)' # Transparent background
+            ),
+            margin=dict(l=0, r=0, b=0, t=40),
+            height=400, # Slightly smaller to fit sidebar better
+            showlegend=True,
+            legend=dict(yanchor="top", y=0.9, xanchor="left", x=0.1),
+            paper_bgcolor='rgba(0,0,0,0)', # Transparent outer background
+        )
+        
+        return fig

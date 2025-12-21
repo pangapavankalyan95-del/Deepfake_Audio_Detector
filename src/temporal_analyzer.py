@@ -49,11 +49,18 @@ class TemporalAnalyzer:
                 - timeline: Frame-by-frame predictions
         """
         # Load audio
-        audio, sr = librosa.load(audio_path, sr=self.target_sr)
-        duration = len(audio) / sr
+        audio, _ = librosa.load(audio_path, sr=self.target_sr)
+        
+        # Trim silence/clicks from start and end - More lenient for low volume speech
+        audio, _ = librosa.effects.trim(audio, top_db=40)
+        
+        # Normalize waveform volume for consistent feature extraction
+        audio = librosa.util.normalize(audio)
+        
+        duration = len(audio) / self.target_sr
         
         # Calculate window parameters
-        window_samples = int(self.window_size * sr)
+        window_samples = int(self.window_size * self.target_sr)
         hop_samples = int(window_samples * (1 - self.overlap))
         
         # Analyze each window
@@ -67,23 +74,19 @@ class TemporalAnalyzer:
             # Extract window
             window_audio = audio[start_sample:end_sample]
             
-            # Pad if needed (always pad to full window size for consistent model input)
-            if len(window_audio) < window_samples:
-                # Force repetition (tiling) for ALL short segments to ensure the model sees signal
-                # Zero padding dilutes the signal for short clips (e.g. 0.2s), causing false negatives.
-                repeats = int(np.ceil(window_samples / len(window_audio)))
-                window_audio = np.tile(window_audio, repeats)[:window_samples]
+            # Removed tiling logic. Raw signal is better.
+            # Spectrogram will be padded to 313 frames in _get_single_prediction.
             
             # Get prediction for this window
             try:
-                score = self._predict_window(window_audio, sr, apply_noise_reduction)
+                score = self._predict_window(window_audio, self.target_sr, apply_noise_reduction)
             except Exception as e:
                 print(f"Error predicting window: {e}")
                 score = 0.0
             
             # Calculate timestamps
-            start_time = start_sample / sr
-            end_time = end_sample / sr
+            start_time = start_sample / self.target_sr
+            end_time = end_sample / self.target_sr
             
             segments.append({
                 'start': round(start_time, 2),
@@ -122,6 +125,11 @@ class TemporalAnalyzer:
         Uses recursive sub-window scanning if sensitivity is high (threshold < 0.25).
         """
         try:
+            # SILENCE GUARD: If window is mostly silent, it's NOT a deepfake (it's just noise)
+            rms = np.sqrt(np.mean(audio**2))
+            if rms < 0.002: # Threshold for ambient office noise
+                return 0.0
+                
             # 1. Main prediction on full window
             main_score = self._get_single_prediction(audio, sr, apply_nr)
             
@@ -168,7 +176,7 @@ class TemporalAnalyzer:
             print(f"Prediction error: {e}")
             return 0.0
 
-    def _get_single_prediction(self, audio: np.ndarray, sr: int, apply_nr: bool, nr_strength: float = 0.8) -> float:
+    def _get_single_prediction(self, audio: np.ndarray, sr: int, apply_nr: bool, nr_strength: float = 0.5) -> float:
         """Internal helper for raw model prediction."""
         # Extract features directly from audio array
         mel_spec = self._extract_features_from_audio(audio, sr, apply_nr, nr_strength)
@@ -176,12 +184,15 @@ class TemporalAnalyzer:
         if mel_spec is None:
             return 0.0
         
-        # Resize/pad to match training shape (157 time steps)
-        target_width = 157
-        if mel_spec.shape[1] > target_width:
+        # Resize/pad to match training shape (313 time steps for 10s audio)
+        target_width = 313
+        current_width = mel_spec.shape[1]
+        
+        if current_width < target_width:
+            pad_width = target_width - current_width
+            mel_spec = np.pad(mel_spec, ((0,0), (0, pad_width)), mode='constant')
+        elif current_width > target_width:
             mel_spec = mel_spec[:, :target_width]
-        else:
-            mel_spec = np.pad(mel_spec, ((0,0), (0, target_width - mel_spec.shape[1])), mode='constant')
         
         # Add batch and channel dims
         input_data = mel_spec[np.newaxis, ..., np.newaxis]
@@ -191,7 +202,7 @@ class TemporalAnalyzer:
         score = prediction[0][0]  # Model outputs: 0=Real, 1=Fake
         return score
 
-    def _extract_features_from_audio(self, y: np.ndarray, sr: int, apply_nr: bool, nr_strength: float = 0.8) -> Optional[np.ndarray]:
+    def _extract_features_from_audio(self, y: np.ndarray, sr: int, apply_nr: bool, nr_strength: float = 0.5) -> Optional[np.ndarray]:
         """
         Extract Mel Spectrogram from audio numpy array.
         """
@@ -206,10 +217,14 @@ class TemporalAnalyzer:
             mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
             mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
             
-            # Normalize to [0, 1]
-            mel_spec_db = (mel_spec_db - mel_spec_db.min()) / (mel_spec_db.max() - mel_spec_db.min() + 1e-8)
+            # Robust Normalization: Use 60dB floor to prevent noise magnification
+            # Matches app.py logic to ensure windows without clear speech don't blow up noise
+            db_range = mel_spec_db.max() - mel_spec_db.min()
+            norm_range = max(db_range, 60.0) # 60dB Minimum dynamic range
             
-            return mel_spec_db
+            mel_spec_norm = (mel_spec_db - mel_spec_db.min()) / (norm_range + 1e-8)
+            
+            return mel_spec_norm
         except Exception as e:
             print(f"Feature extraction error: {e}")
             return None

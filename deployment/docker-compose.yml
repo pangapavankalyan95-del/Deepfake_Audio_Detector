@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  deepfake-detector:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    ports:
+      - "8501:8501"
+    volumes:
+      - ..:/app
+      - /app/venv
+      - /app/venv_gpu
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: always

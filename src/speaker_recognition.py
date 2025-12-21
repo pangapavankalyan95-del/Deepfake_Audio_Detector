@@ -326,3 +326,18 @@ class SpeakerRecognizer:
             Number of enrolled speakers
         """
         return len(self.profiles)
+
+    def get_all_embeddings(self) -> Dict[str, np.ndarray]:
+        """
+        Get all enrolled speaker embeddings for visualization.
+        
+        Returns:
+            Dict mapping name to embedding vector
+        """
+        return self.profiles
+    
+    def get_embedding(self, audio_path: str) -> Optional[np.ndarray]:
+        """
+        Get raw embedding for an audio file (for visualization).
+        """
+        return self._extract_features(audio_path)

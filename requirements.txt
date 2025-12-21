@@ -31,3 +31,6 @@ Pillow>=10.0.0
 # Jupyter
 notebook
 ipykernel
+
+# Interactive Visualization
+plotly>=5.15.0
