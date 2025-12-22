@@ -1,7 +1,23 @@
 # Deepfake Audio Detection System
 **Developed by: Panga Pavan Kalyan**
 
-A deep learning system for detecting AI-generated (deepfake) audio using CNN+BiLSTM architecture with explainable AI features.
+I built this deep learning system to detect AI-generated (deepfake) audio using a CNN+BiLSTM architecture. The system can identify fake audio with 99%+ accuracy and includes explainable AI features to show exactly why it made its decision.
+
+## 🚀 Live Demo
+
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://your-app.streamlit.app)
+
+> **Note**: Replace the URL above with your actual Streamlit Cloud deployment URL
+
+### Demo Video
+
+https://github.com/user-attachments/assets/demo_video.mp4
+
+*Watch the full system in action - from uploading audio to generating forensic reports*
+
+### Dashboard Preview
+![Dashboard Screenshot](screenshots/dashboard_main.png)
+*The main forensic analysis dashboard with real-time detection*
 
 ## Features
 
@@ -10,15 +26,21 @@ A deep learning system for detecting AI-generated (deepfake) audio using CNN+BiL
 - **Forensic Dashboard**: Professional "Cyber-Blue" UI with Spectrograms, Frequency Radar, and XAI Heatmaps.
 - **3D Spectral Analysis**: Interactive 3D terrain exploration of audio frequencies (Zoom/Rotate).
 - **Speaker Verification**: Enroll voice profiles to verify identity matching (Bio-metric + Deepfake Defense).
+- **Stable UI Components**: Radio-based input selection ensures consistent component rendering.
 - **Multiple Input Methods**: 
-    - 🎤 Live Recording
+    - 🎤 Live Recording (with persistent recorder)
     - 📂 File Upload
     - 🧪 One-Click Test Samples (Real, Fake, and Mixed)
 - **Mixed Audio & Splicing Detection**:
     - **Smart Verdicts**: Distinguishes between "Strict" (Live) and "Suspicious" (Files) to catch spliced audio.
+    - **Forensic Delta Check (Prototype)**: Detects signal variance in mixed samples to identify partial tampering.
     - **Segment Breakdown**: Lists exact timestamps: "Real: 0s-4s, Fake: 4s-5s".
     - **Splicing XAI**: Detects "Insertion Attacks" (e.g., adding words to a sentence).
-- **Comprehensive Reporting**: Generate detailed PDF Forensic Reports with visualizations, **Temporal Analysis Tables**, and **Visual Timeline Diagrams**. Styling is dynamically optimized based on the verdict ("REAL", "FAKE", or "SUSPICIOUS").
+- **Comprehensive Reporting**: Generate detailed PDF Forensic Reports with:
+    - Mel Spectrograms and Grad-CAM heatmaps
+    - **Temporal Timeline Visualizations** (now included in PDF)
+    - Temporal Analysis Tables with suspicious region timestamps
+    - Verdict-synchronized styling ("REAL", "FAKE", or "SUSPICIOUS")
 - **Containerized Deployment**: Ready-to-use Docker environment for consistent, one-click deployment across any platform.
 - **Neural Engine Diagnostics**: View live model architecture summaries and real-time performance metrics directly in the dashboard.
 

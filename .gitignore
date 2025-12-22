@@ -35,3 +35,20 @@ metrics/
 .vscode/
 .idea/
 *.ipynb_checkpoints/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+*.swp
+
+# Large media files
+*.mp4
+*.avi
+*.mov
+
+# Gemini brain artifacts (local only)
+.gemini/
+
+# Verification and debug files
+verification_results.txt
+*.log

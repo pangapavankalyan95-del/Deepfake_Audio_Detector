@@ -533,17 +533,17 @@ class DeepfakeExplainer:
                 ]))
                 story.append(t_regions)
                 story.append(Spacer(1, 0.3*inch))
-                
-                # Add Timeline Diagram if provided
-                if timeline_fig:
-                    story.append(Paragraph("Timeline Visualization", heading_style))
-                    # Save timeline fig to bytes
-                    t_buf = io.BytesIO()
-                    timeline_fig.savefig(t_buf, format='png', dpi=150, bbox_inches='tight')
-                    t_buf.seek(0)
-                    t_img = RLImage(t_buf, width=6*inch, height=2*inch)
-                    story.append(t_img)
-                    story.append(Spacer(1, 0.2*inch))
+            
+            # Add Timeline Diagram if provided (Always show, not just for fake regions)
+            if timeline_fig:
+                story.append(Paragraph("Timeline Visualization", heading_style))
+                # Save timeline fig to bytes
+                t_buf = io.BytesIO()
+                timeline_fig.savefig(t_buf, format='png', dpi=150, bbox_inches='tight')
+                t_buf.seek(0)
+                t_img = RLImage(t_buf, width=6*inch, height=2*inch)
+                story.append(t_img)
+                story.append(Spacer(1, 0.2*inch))
             
             # Save heatmap figure to bytes
             buf = io.BytesIO()

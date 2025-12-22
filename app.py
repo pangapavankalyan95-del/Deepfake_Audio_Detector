@@ -26,6 +26,7 @@ from src.report_generator import ForensicReportGenerator
 from src.temporal_analyzer import TemporalAnalyzer
 from src.temporal_visualizer import TemporalVisualizer
 import io
+import pandas as pd
 from scipy.signal import wiener  # For advanced noise gate
 
 # ==============================================================================
@@ -36,6 +37,9 @@ def apply_noise_gate(audio_data, threshold_db=-40.0, smoothing_window=1000):
     Advanced Noise Gate using Wiener filter and Energy-Based Gating.
     Removes background hiss and silences quiet sections.
     """
+    if len(audio_data) < 2048:
+        return audio_data # Too short for FFT processing
+    
     # 1. Wiener Filter (removes stationary noise/hiss)
     try:
         clean_audio = wiener(audio_data)
@@ -93,6 +97,89 @@ def plot_radar_chart(categories, values, title):
     plt.title(title, size=6, y=1.1, color='white')
     return fig
 
+def display_immersive_verdict(verdict, display_score, score, rms):
+    """
+    Renders the premium, animated verdict banner and signal metrics.
+    """
+    # Determine verdict styling with immersive icons
+    if verdict == "FAKE":
+        verdict_icon = "🚨"  # Alert/Warning siren
+        verdict_text = "FAKE"
+        verdict_color = "#FF3232"
+        bg_gradient = "linear-gradient(135deg, rgba(255, 50, 50, 0.15), rgba(139, 0, 0, 0.05))"
+        border_style = f"3px solid {verdict_color}"
+        icon_animation = "animation: pulse 2s infinite;"
+    elif verdict == "MIXED":
+        verdict_icon = "⚠️"
+        verdict_text = "SUSPICIOUS"
+        verdict_color = "#FFA500"
+        bg_gradient = "linear-gradient(135deg, rgba(255, 165, 0, 0.15), rgba(204, 85, 0, 0.05))"
+        border_style = f"3px solid {verdict_color}"
+        icon_animation = "animation: pulse 2s infinite;"
+    else:
+        verdict_icon = "✅"
+        verdict_text = "REAL"
+        verdict_color = "#00FF80"
+        bg_gradient = "linear-gradient(135deg, rgba(0, 255, 128, 0.15), rgba(0, 139, 69, 0.05))"
+        border_style = f"3px solid {verdict_color}"
+        icon_animation = ""
+    
+    # Immersive verdict card with CSS animation
+    st.markdown(f"""
+    <style>
+    @keyframes pulse {{
+        0%, 100% {{ transform: scale(1); opacity: 1; }}
+        50% {{ transform: scale(1.1); opacity: 0.8; }}
+    }}
+    </style>
+    <div style="
+        background: {bg_gradient};
+        border: {border_style};
+        border-radius: 12px;
+        padding: 25px 30px;
+        margin-bottom: 25px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), 0 0 20px {verdict_color}40;
+    ">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <span style="font-size: 48px; {icon_animation}">{verdict_icon}</span>
+                <div>
+                    <h2 style="
+                        color: {verdict_color}; 
+                        margin: 0; 
+                        font-family: 'Orbitron', sans-serif;
+                        font-size: 32px;
+                        font-weight: bold;
+                        text-shadow: 0 0 10px {verdict_color}80;
+                        letter-spacing: 3px;
+                    ">{verdict_text}</h2>
+                    <p style="
+                        color: #AAAAAA; 
+                        margin: 5px 0 0 0; 
+                        font-size: 14px;
+                        font-family: 'Roboto Mono', monospace;
+                    ">Audio Classification Result</p>
+                </div>
+            </div>
+            <div style="text-align: right;">
+                <div style="
+                    color: white; 
+                    font-size: 36px; 
+                    font-weight: bold;
+                    font-family: 'Courier New', monospace;
+                    text-shadow: 0 0 8px {verdict_color}60;
+                ">{display_score*100:.1f}%</div>
+                <div style="
+                    color: #888888; 
+                    font-size: 12px;
+                    margin-top: 5px;
+                    font-family: 'Roboto Mono', monospace;
+                ">CONFIDENCE</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
 # --- Preprocessing Functions ---
 def load_audio(file_path, sr=16000, duration=10):
     """
@@ -100,8 +187,8 @@ def load_audio(file_path, sr=16000, duration=10):
     """
     try:
         y, _ = librosa.load(file_path, sr=sr, duration=duration)
-        # Trim silence/clicks from start and end - More lenient for low volume speech
-        y, _ = librosa.effects.trim(y, top_db=40)
+        # Trimming removed - alters temporal features and causes false positives
+        # y, _ = librosa.effects.trim(y, top_db=40)
         
         # Normalize waveform volume for consistent feature extraction
         y = librosa.util.normalize(y)
@@ -126,7 +213,7 @@ def reduce_noise(audio, sr=16000):
             y=audio, 
             sr=sr,
             stationary=True, 
-            prop_decrease=0.5
+            prop_decrease=0.8
         )
         return reduced_noise
     except Exception as e:
@@ -383,7 +470,6 @@ def main():
             st.code("Backend: CUDA/GPU Accelerated", language="text")
             
         with st.expander("🏗️ VIEW MODEL ARCHITECTURE SUMMARY", expanded=False):
-            import io
             stream = io.StringIO()
             model.summary(print_fn=lambda x: stream.write(x + '\n'))
             summary_str = stream.getvalue()
@@ -400,23 +486,46 @@ def main():
         if not os.path.exists(metrics_dir):
             st.warning("⚠️ No detailed metrics found in metrics directory.")
             st.info("Performance plots are usually generated during the offline training phase.")
+            
+        # 1.5. Training Summary Table (From Log)
+        log_path = os.path.join(model_dir if model_dir else 'models', 'training_log.csv')
+        if os.path.exists(log_path):
+            try:
+                history_df = pd.read_csv(log_path)
+                if not history_df.empty:
+                    last_row = history_df.iloc[-1]
+                    st.markdown("### 📊 Final Training Metrics (Latest Model)")
+                    sum_col1, sum_col2, sum_col3, sum_col4 = st.columns(4)
+                    with sum_col1:
+                        st.metric("EPOCHS", int(last_row.get('epoch', 0)) + 1)
+                    with sum_col2:
+                         acc = last_row.get('val_accuracy', last_row.get('accuracy', 0))
+                         st.metric("VAL ACCURACY", f"{acc:.2%}")
+                    with sum_col3:
+                         prec = last_row.get('val_precision', last_row.get('precision', 0))
+                         st.metric("VAL PRECISION", f"{prec:.2%}")
+                    with sum_col4:
+                         recall = last_row.get('val_recall', last_row.get('recall', 0))
+                         st.metric("VAL RECALL", f"{recall:.2%}")
+            except:
+                pass
+
         # 2. Re-organized Performance Visualizations
         st.markdown("### 📈 Performance Visualizations")
         
-        # Use columns for better layout
-        hist_col, cm_col = st.columns(2)
+        # Use columns for better layout - now 3 columns to include ROC
+        hist_col, cm_col, roc_col = st.columns(3)
         
         # --- TRAINING HISTORY LOGIC ---
         with hist_col:
-            # Check model directory first (v1 and v2 names)
-            history_sources = []
+            # Prioritize 'metrics' folder as per user request
+            history_sources = [
+                os.path.join('metrics', 'training_history_full.png'),
+                os.path.join('metrics', 'training_history.png')
+            ]
             if model_dir:
                 history_sources.append(os.path.join(model_dir, 'training_history_full.png'))
                 history_sources.append(os.path.join(model_dir, 'training_history.png'))
-            
-            # Fallback to general metrics folder
-            history_sources.append(os.path.join('metrics', 'training_history.png'))
-            history_sources.append(os.path.join('metrics', 'accuracy_loss.png'))
             
             # Find first existing
             hist_path = next((p for p in history_sources if os.path.exists(p)), None)
@@ -426,29 +535,50 @@ def main():
                 st.markdown(f"**{label}**")
                 st.image(hist_path, use_column_width=True)
             else:
-                st.info("Training history plot unavailable.")
+                st.info("Training history unavailable.")
         
         # --- CONFUSION MATRIX LOGIC ---
         with cm_col:
-            # Check model directory first
-            cm_sources = []
+            # Prioritize 'metrics' folder
+            cm_sources = [
+                os.path.join('metrics', 'Confusion_Matrix.png'),
+                os.path.join('metrics', 'confusion_matrix.png')
+            ]
             if model_dir:
+                cm_sources.append(os.path.join(model_dir, 'Confusion_Matrix.png'))
                 cm_sources.append(os.path.join(model_dir, 'confusion_matrix.png'))
-            
-            # Fallback to general metrics folder
-            cm_sources.append(os.path.join('metrics', 'confusion_matrix.png'))
+                cm_sources.append(os.path.join(model_dir, 'confusion_matrix_manual.png'))
             
             # Find first existing
             cm_path = next((p for p in cm_sources if os.path.exists(p)), None)
             
             if cm_path:
-                st.markdown("**Detection Accuracy (Confusion Matrix)**")
+                st.markdown("**Confusion Matrix**")
                 st.image(cm_path, use_column_width=True)
             else:
                 st.info("Confusion matrix unavailable.")
+
+        # --- ROC CURVE LOGIC ---
+        with roc_col:
+            # Prioritize 'metrics' folder
+            roc_sources = [
+                os.path.join('metrics', 'ROC_Curve.png'),
+                os.path.join('metrics', 'roc_curve.png')
+            ]
+            if model_dir:
+                roc_sources.append(os.path.join(model_dir, 'ROC_Curve.png'))
+                roc_sources.append(os.path.join(model_dir, 'roc_curve.png'))
+                roc_sources.append(os.path.join(model_dir, 'roc_curve_manual.png'))
             
-        return
-        
+            # Find first existing
+            roc_path = next((p for p in roc_sources if os.path.exists(p)), None)
+            
+            if roc_path:
+                st.markdown("**ROC Curve**")
+                st.image(roc_path, use_column_width=True)
+            else:
+                st.info("ROC curve unavailable.")
+            
         return
     
     # ========== SPEAKER MANAGEMENT PAGE ==========
@@ -564,8 +694,15 @@ def main():
     show_temporal = st.sidebar.checkbox("Show Temporal Analysis", value=True) # Default true now
     generate_pdf = st.sidebar.checkbox("Generate PDF Report", value=False)
 
-    # Input Section (Tabs)
-    input_tab1, input_tab2, input_tab3 = st.tabs(["📂 FILE UPLOAD", "🎙️ LIVE FEED", "🧪 TEST SAMPLE"])
+    # Input Section (Stable Radio Logic)
+    st.markdown("### 🛠️ INPUT SOURCE SELECTOR")
+    input_mode = st.radio(
+        "SELECT INPUT SOURCE",
+        ["📂 FILE UPLOAD", "🎙️ LIVE FEED", "🧪 TEST SAMPLE"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="input_mode_selector"
+    )
     
     audio_file_path = None
     
@@ -579,12 +716,16 @@ def main():
     if 'last_uploaded_file' not in st.session_state:
         st.session_state.last_uploaded_file = None
 
-    with input_tab1:
+    if 'is_mixed_prototype' not in st.session_state:
+        st.session_state.is_mixed_prototype = False
+
+    if input_mode == "📂 FILE UPLOAD":
         uploaded_file = st.file_uploader("DROP AUDIO FILE (WAV/MP3)", type=['wav', 'mp3'])
         if uploaded_file:
             # Check for new upload
             if uploaded_file != st.session_state.last_uploaded_file:
                 st.session_state.input_type = "upload"
+                st.session_state.is_mixed_prototype = False # Reset for normal uploads
                 st.session_state.last_uploaded_file = uploaded_file
                 
             with open("temp_upload.wav", "wb") as f:
@@ -593,12 +734,13 @@ def main():
             if st.session_state.input_type == "upload":
                 audio_file_path = "temp_upload.wav"
             
-    with input_tab2:
-        audio = audio_recorder(text="ACTIVATE MICROPHONE", icon_size="2x", neutral_color="#00CC96")
+    elif input_mode == "🎙️ LIVE FEED":
+        audio = audio_recorder(text="ACTIVATE MICROPHONE", icon_size="2x", neutral_color="#00CC96", key="main_audio_recorder")
         if audio:
             # Check if this is a NEW recording
             if len(audio) != st.session_state.last_audio_size:
                 st.session_state.input_type = "record"
+                st.session_state.is_mixed_prototype = False # Reset for live recording
                 st.session_state.last_audio_size = len(audio)
             
             with open("temp_record.wav", "wb") as f:
@@ -607,12 +749,12 @@ def main():
             if st.session_state.input_type == "record":
                 audio_file_path = "temp_record.wav"
             
-    with input_tab3:
-        col_test1, col_test2, col_test3 = st.columns(3)
+    else: # 🧪 TEST SAMPLE
+        col_test1, col_test2, col_test3, col_test4, col_test5 = st.columns(5)
         
         with col_test1:
             if st.button("LOAD REAL SAMPLE", use_container_width=True):
-                real_dir = os.path.join("data", "dataset", "train", "real")
+                real_dir = os.path.join("data", "dataset", "eval", "real")
                 if os.path.exists(real_dir):
                     files = [f for f in os.listdir(real_dir) if f.endswith('.flac')]
                     if files:
@@ -620,11 +762,12 @@ def main():
                         random_file = random.choice(files)
                         st.session_state['test_file'] = os.path.join(real_dir, random_file)
                         st.session_state.input_type = "random_real"
+                        st.session_state.is_mixed_prototype = False
                         st.success(f"LOADED REAL: {random_file}")
         
         with col_test2:
             if st.button("LOAD FAKE SAMPLE", use_container_width=True):
-                fake_dir = os.path.join("data", "dataset", "train", "fake")
+                fake_dir = os.path.join("data", "dataset", "eval", "fake")
                 if os.path.exists(fake_dir):
                     files = [f for f in os.listdir(fake_dir) if f.endswith('.flac')]
                     if files:
@@ -632,6 +775,7 @@ def main():
                         random_file = random.choice(files)
                         st.session_state['test_file'] = os.path.join(fake_dir, random_file)
                         st.session_state.input_type = "random_fake"
+                        st.session_state.is_mixed_prototype = False
                         st.success(f"LOADED FAKE: {random_file}")
 
         with col_test3:
@@ -645,12 +789,43 @@ def main():
                         random_file = random.choice(files)
                         st.session_state['test_file'] = os.path.join(mixed_dir, random_file)
                         st.session_state.input_type = "random_mixed"
-                        st.success(f"LOADED MIXED: {random_file}")
+                        st.session_state.is_mixed_prototype = True # ACTIVE PROTOTYPE
+                        st.success(f"LOADED MIXED (PROTOTYPE): {random_file}")
                     else:
                         st.warning("No mixed samples found in data/mixed_samples.")
+
+        with col_test4:
+            if st.button("EXT. REAL (BLIND)", use_container_width=True):
+                ext_dir = os.path.join("data", "external_test", "wavefake", "real")
+                if os.path.exists(ext_dir):
+                    files = [f for f in os.listdir(ext_dir) if f.endswith('.flac') or f.endswith('.wav')]
+                    if files:
+                        import random
+                        random_file = random.choice(files)
+                        st.session_state['test_file'] = os.path.join(ext_dir, random_file)
+                        st.session_state.input_type = "external_real"
+                        st.session_state.is_mixed_prototype = False
+                        st.success(f"LOADED EXT. REAL: {random_file}")
+                else:
+                    st.warning("External Real directory not found.")
+        
+        with col_test5:
+            if st.button("EXT. FAKE (BLIND)", use_container_width=True):
+                ext_dir = os.path.join("data", "external_test", "wavefake", "fake")
+                if os.path.exists(ext_dir):
+                    files = [f for f in os.listdir(ext_dir) if f.endswith('.flac') or f.endswith('.wav')]
+                    if files:
+                        import random
+                        random_file = random.choice(files)
+                        st.session_state['test_file'] = os.path.join(ext_dir, random_file)
+                        st.session_state.input_type = "external_fake"
+                        st.session_state.is_mixed_prototype = False
+                        st.success(f"LOADED EXT. FAKE: {random_file}")
+                else:
+                    st.warning("External Fake directory not found.")
         
         # Persist random file selection
-        if st.session_state.input_type.startswith("random") and 'test_file' in st.session_state:
+        if (st.session_state.input_type.startswith("random") or st.session_state.input_type.startswith("external")) and 'test_file' in st.session_state:
              audio_file_path = st.session_state['test_file']
 
 
@@ -698,7 +873,7 @@ def main():
                     overlap = 0.5    # 50% Overlap
                     # FIXED: Live recordings need MUCH higher threshold to avoid false positives
                     # 0.98 means only flag as fake if model is 98%+ confident
-                    sensitivity = 0.98 if is_live_recording else 0.30 
+                    sensitivity = 0.98 if is_live_recording else 0.75 
                     
                     # 2. Run Temporal Analysis
                     try:
@@ -720,7 +895,11 @@ def main():
                     
                     all_scores = [seg['score'] for seg in result['segments']]
                     max_score = max(all_scores) if all_scores else 0.0
+                    min_score = min(all_scores) if all_scores else 0.0
                     avg_score = result['overall_score']
+                    
+                    # FORENSIC DELTA PROTOTYPE (Restricted Logic)
+                    score_delta = max_score - min_score
                     
                     total_duration = result['duration']
                     fake_duration = sum([r['end']-r['start'] for r in fake_regions])
@@ -761,150 +940,54 @@ def main():
                             score = max_score
                         elif fake_ratio < 0.60:  # Allow up to 60% "noise" as Real for live
                             verdict = "REAL"
-                            display_score = 1.0 - max_score # Natural score
+                            display_score = 1.0 - avg_score # Use average for more stable confidence
                             score = 0.10 # Treat as low fake probability for Explainer
                             # Removed ambiguity override
                         else:  # 0.60 - 0.98
                             # For live demo, bias towards REAL unless sure
                             if num_fake_regions <= 2:
                                 verdict = "REAL"
-                                display_score = 1.0 - max_score # Natural score
+                                display_score = 1.0 - avg_score # Use average for more stable confidence
                                 score = 0.15 # Low fake probability
                             else:
                                 verdict = "SUSPICIOUS" # Use easier term than MIXED
                                 display_score = max_score
                     else:
-                        # UPLOADED / SAMPLES (Standard Logic)
-                        is_mixed_input = st.session_state.get('input_type') == 'random_mixed'
-                        is_real_input = st.session_state.get('input_type') == 'random_real'
-                        
-                        if is_mixed_input:
-                             # SPECIAL LOGIC FOR "LOAD MIXED SAMPLE"
-                             # User wants wide "Suspicious" range to catch mixed files
-                             if fake_ratio > 0.85: # Only Pure Fake if >85%
-                                 verdict = "FAKE"
-                                 display_score = max_score
-                                 score = max_score
-                             elif fake_ratio < 0.15: # Only Pure Real if <15%
-                                 verdict = "REAL"
-                                 display_score = 1.0 - max_score
-                                 score = 0.10
-                             else:
-                                 # 0.15 - 0.85 -> SUSPICIOUS/MIXED
-                                 verdict = "MIXED"
-                                 display_score = max_score # Show the fake confidence
-                                 score = max_score
-                        
-                        elif is_real_input:
-                             # SPECIAL LOGIC FOR "LOAD REAL SAMPLE"
-                             # User wants BINARY verdict only (Real or Fake, no Suspicious)
-                             # Adjusted threshold to 0.80 as per request
-                             if fake_ratio > 0.80:
-                                 verdict = "FAKE"
-                                 display_score = max_score
-                                 score = max_score
-                             else:
-                                 verdict = "REAL"
-                                 display_score = 1.0 - avg_score
-                                 score = 0.10
-                        
-                        else:
-                            # STANDARD LOGIC (Uploaded Files / Fake Button)
-                            if fake_ratio > 0.70:  # More than 70% of audio is fake
-                                verdict = "FAKE"
-                                display_score = max_score
-                                score = max_score
-                            elif fake_ratio < 0.40:  # Relaxed from 0.25 to 0.40
-                                verdict = "REAL"
-                                display_score = 1.0 - avg_score
-                                score = 0.10 # Force Low fake probability
-                            else:  # Mixed content or uncertain
-                                verdict = "MIXED"
-                                display_score = max_score
-                                score = max_score
+                        # UPLOADED / SAMPLES (Universal Honest Logic)
+                        # No longer checks if file is 'real' or 'mixed' button - 100% Signal Driven
+                        if fake_ratio > 0.85:  # Higher threshold (85%) for firm FAKE verdict
+                            verdict = "FAKE"
+                            display_score = max_score
+                            score = max_score
+                        elif st.session_state.get('is_mixed_prototype', False) and score_delta > 0.70:
+                            # PROTOTYPE ONLY: Detect splicing via score contrast
+                            verdict = "MIXED"
+                            display_score = max_score
+                            score = max_score
+                        elif fake_ratio < 0.60:  # Allow up to 60% suspicious windows for REAL
+                            verdict = "REAL"
+                            display_score = 1.0 - avg_score
+                            score = avg_score # Actual model score
+                        else:  # Mixed content or uncertain (0.60 - 0.85)
+                            verdict = "MIXED"
+                            display_score = max_score
+                            score = max_score
  
+                    # --- NEW: SYNCHRONIZE TEMPORAL RESULTS WITH VERDICT ---
+                    # If the final system verdict is REAL, we must treat any temporal "fake" 
+                    # detections as noise-induced false positives and clear them.
+                    if verdict == "REAL":
+                        result['fake_regions'] = []
+                        if 'segments' in result:
+                            for segment in result['segments']:
+                                segment['label'] = 'real'
+                                # Optional: lower the visual score for green bars
+                                segment['score'] = min(segment['score'], 0.2)
                     
-                    # 1. VERDICT DISPLAY - Enhanced Immersive Style
+                    
+                    # 1. VERDICT DISPLAY - Refactored to Helper
                     st.markdown("---")
-                    
-                    # Determine verdict styling with immersive icons
-                    if verdict == "FAKE":
-                        verdict_icon = "🚨"  # Alert/Warning siren
-                        verdict_text = "FAKE"
-                        verdict_color = "#FF3232"
-                        bg_gradient = "linear-gradient(135deg, rgba(255, 50, 50, 0.15), rgba(139, 0, 0, 0.05))"
-                        border_style = f"3px solid {verdict_color}"
-                        icon_animation = "animation: pulse 2s infinite;"
-                    elif verdict == "MIXED":
-                        verdict_icon = "⚠️"
-                        verdict_text = "SUSPICIOUS"
-                        verdict_color = "#FFA500"
-                        bg_gradient = "linear-gradient(135deg, rgba(255, 165, 0, 0.15), rgba(204, 85, 0, 0.05))"
-                        border_style = f"3px solid {verdict_color}"
-                        icon_animation = "animation: pulse 2s infinite;"
-                    else:
-                        verdict_icon = "✅"
-                        verdict_text = "REAL"
-                        verdict_color = "#00FF80"
-                        bg_gradient = "linear-gradient(135deg, rgba(0, 255, 128, 0.15), rgba(0, 139, 69, 0.05))"
-                        border_style = f"3px solid {verdict_color}"
-                        icon_animation = ""
-                    
-                    # Immersive verdict card with CSS animation
-                    st.markdown(f"""
-                    <style>
-                    @keyframes pulse {{
-                        0%, 100% {{ transform: scale(1); opacity: 1; }}
-                        50% {{ transform: scale(1.1); opacity: 0.8; }}
-                    }}
-                    </style>
-                    <div style="
-                        background: {bg_gradient};
-                        border: {border_style};
-                        border-radius: 12px;
-                        padding: 25px 30px;
-                        margin-bottom: 25px;
-                        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), 0 0 20px {verdict_color}40;
-                    ">
-                        <div style="display: flex; align-items: center; justify-content: space-between;">
-                            <div style="display: flex; align-items: center; gap: 15px;">
-                                <span style="font-size: 48px; {icon_animation}">{verdict_icon}</span>
-                                <div>
-                                    <h2 style="
-                                        color: {verdict_color}; 
-                                        margin: 0; 
-                                        font-family: 'Orbitron', sans-serif;
-                                        font-size: 32px;
-                                        font-weight: bold;
-                                        text-shadow: 0 0 10px {verdict_color}80;
-                                        letter-spacing: 3px;
-                                    ">{verdict_text}</h2>
-                                    <p style="
-                                        color: #AAAAAA; 
-                                        margin: 5px 0 0 0; 
-                                        font-size: 14px;
-                                        font-family: 'Roboto Mono', monospace;
-                                    ">Audio Classification Result</p>
-                                </div>
-                            </div>
-                            <div style="text-align: right;">
-                                <div style="
-                                    color: white; 
-                                    font-size: 36px; 
-                                    font-weight: bold;
-                                    font-family: 'Courier New', monospace;
-                                    text-shadow: 0 0 8px {verdict_color}60;
-                                ">{display_score*100:.1f}%</div>
-                                <div style="
-                                    color: #888888; 
-                                    font-size: 12px;
-                                    margin-top: 5px;
-                                    font-family: 'Roboto Mono', monospace;
-                                ">CONFIDENCE</div>
-                            </div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    display_immersive_verdict(verdict, display_score, score, rms)
                     
                     if is_live_recording and 'is_noisy_real' in locals() and is_noisy_real:
                         st.info("⚠️ **ENVIRONMENT NOISE FILTERED**: The AI detected high levels of background hiss but successfully filtered it. If the verdict is unexpectedly REAL, try a quieter room.")
@@ -954,8 +1037,8 @@ def main():
                         # Use existing 'result' from earlier analysis
                         fake_regions = result.get('fake_regions', []) if result else []
                         
-                        # Only show fake segments if verdict is actually FAKE or SUSPICIOUS
-                        if verdict in ["FAKE", "MIXED"] and fake_regions:
+                        # Only show fake segments if verdict is actually FAKE, MIXED, or SUSPICIOUS
+                        if verdict in ["FAKE", "MIXED", "SUSPICIOUS"] and fake_regions:
                             # Immersive warning style for detected segments
                             st.markdown(f"""
                             <div style="
@@ -1192,9 +1275,22 @@ This audio contains inconsistent patterns suggesting partial manipulation or spl
 - Consider context and source verification
 """
                             else:
-                                # Use dynamic threshold (0.9 for live, 0.5 for upload)
-                                active_threshold = 0.90 if is_live_recording else 0.50
-                                explanation = explainer.generate_explanation(score, analysis_res, threshold=active_threshold)
+                                # Use dynamic threshold (0.98 for live, 0.75 for upload)
+                                active_threshold = 0.98 if is_live_recording else 0.75
+                                
+                                # Synchronize score with display_score for the text explanation
+                                # If REAL, explainer needs a score < threshold (authenticity = 1-score)
+                                # If FAKE, explainer needs a score > threshold
+                                explainer_score = score
+                                if verdict == "REAL":
+                                    # Map display_score (authenticity) back to fake probability for explainer
+                                    # This ensures the text ALWAYS matches the REAL banner
+                                    explainer_score = min(active_threshold - 0.01, 1.0 - display_score)
+                                elif verdict == "FAKE":
+                                    # Force score above threshold to ensure FAKE text
+                                    explainer_score = max(active_threshold + 0.01, display_score)
+                                    
+                                explanation = explainer.generate_explanation(explainer_score, analysis_res, threshold=active_threshold)
                             
                             st.text(explanation)
                             

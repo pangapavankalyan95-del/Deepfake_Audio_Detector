@@ -17,7 +17,7 @@ class TemporalAnalyzer:
     Analyzes audio temporally to detect when deepfake manipulation occurred.
     """
     
-    def __init__(self, model, window_size=5.0, overlap=0.5, threshold=0.3):
+    def __init__(self, model, window_size=5.0, overlap=0.5, threshold=0.75):
         """
         Initialize temporal analyzer.
         
@@ -51,11 +51,9 @@ class TemporalAnalyzer:
         # Load audio
         audio, _ = librosa.load(audio_path, sr=self.target_sr)
         
-        # Trim silence/clicks from start and end - More lenient for low volume speech
-        audio, _ = librosa.effects.trim(audio, top_db=40)
-        
-        # Normalize waveform volume for consistent feature extraction
-        audio = librosa.util.normalize(audio)
+        # Trimming & Normalization removed to match model training distribution
+        # audio, _ = librosa.effects.trim(audio, top_db=40)
+        # audio = librosa.util.normalize(audio)
         
         duration = len(audio) / self.target_sr
         
@@ -127,56 +125,23 @@ class TemporalAnalyzer:
         try:
             # SILENCE GUARD: If window is mostly silent, it's NOT a deepfake (it's just noise)
             rms = np.sqrt(np.mean(audio**2))
-            if rms < 0.002: # Threshold for ambient office noise
+            if rms < 0.002 or len(audio) < 2048: # Silence or too short for FFT
                 return 0.0
                 
             # 1. Main prediction on full window
             main_score = self._get_single_prediction(audio, sr, apply_nr)
             
-            # 2. High Sensitivity Check (Sub-window scanning)
-            # If threshold is low (< 0.25), use ultra-fine granularity to catch micro-fakes.
-            if self.threshold < 0.25:
-                window_samples = int(self.window_size * sr) # Define window_samples locally
-                
-                # Divide window into tiny 0.5s chunks
-                chunk_size = int(0.5 * sr) # 0.5 second (Aggressive)
-                if len(audio) >= chunk_size: # Relaxed condition
-                    stride = chunk_size // 2 # 0.25s stride
-                    chunk_scores = []
-                    
-                    for i in range(0, len(audio) - chunk_size + 1, stride):
-                        chunk = audio[i : i + chunk_size]
-                        
-                        # TILING STRATEGY: PING-PONG LOOP
-                        # Naive Tiling [A...B][A...B] creates clicks at B->A boundary.
-                        # These clicks look like HF Deepfake Artifacts -> False Positives.
-                        # Ping-Pong [A...B][B...A] ensures continuity.
-                        chunk_mirror = np.concatenate([chunk, chunk[::-1]])
-                        repeats = int(np.ceil(window_samples / len(chunk_mirror)))
-                        padded_chunk = np.tile(chunk_mirror, repeats)[:window_samples]
-                        
-                        # SMART NR: Use Light NR (0.1) instead of None or Full
-                        # - None: Captures too much background noise -> False Positives
-                        # - Full (0.8): Scrubs the micro-fake -> False Negatives
-                        # - Light (0.1): Cleans hiss, keeps artifacts.
-                        s = self._get_single_prediction(padded_chunk, sr, apply_nr=True, nr_strength=0.1)
-                        
-                        chunk_scores.append(s)
-                    
-                    if chunk_scores:
-                        max_chunk_score = max(chunk_scores)
-                        # Blend: If we found a strong spike, prioritize it
-                        if max_chunk_score > main_score:
-                             # Trust the micro-scan more in high sensitivity mode
-                            main_score = max(main_score, max_chunk_score)
-
+            # High Sensitivity Check (Sub-window scanning)
+            # REMOVED: Tiling creates artifacts that trigger false positives in real audio.
+            # Single pass on 5s window is more robust than tiling 0.5s chunks.
+            
             return float(main_score)
             
         except Exception as e:
             print(f"Prediction error: {e}")
             return 0.0
 
-    def _get_single_prediction(self, audio: np.ndarray, sr: int, apply_nr: bool, nr_strength: float = 0.5) -> float:
+    def _get_single_prediction(self, audio: np.ndarray, sr: int, apply_nr: bool, nr_strength: float = 0.8) -> float:
         """Internal helper for raw model prediction."""
         # Extract features directly from audio array
         mel_spec = self._extract_features_from_audio(audio, sr, apply_nr, nr_strength)
@@ -202,7 +167,7 @@ class TemporalAnalyzer:
         score = prediction[0][0]  # Model outputs: 0=Real, 1=Fake
         return score
 
-    def _extract_features_from_audio(self, y: np.ndarray, sr: int, apply_nr: bool, nr_strength: float = 0.5) -> Optional[np.ndarray]:
+    def _extract_features_from_audio(self, y: np.ndarray, sr: int, apply_nr: bool, nr_strength: float = 0.8) -> Optional[np.ndarray]:
         """
         Extract Mel Spectrogram from audio numpy array.
         """

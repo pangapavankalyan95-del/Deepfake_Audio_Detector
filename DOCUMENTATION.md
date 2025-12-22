@@ -1,6 +1,6 @@
 # Technical Documentation
 
-Detailed technical information about the deepfake audio detection system.
+This document explains the technical details of my deepfake audio detection system - how I built it, what challenges I faced, and how everything works under the hood.
 
 ## Table of Contents
 1. [Project Scope \u0026 Validation](#project-scope--validation)
@@ -17,7 +17,7 @@ Detailed technical information about the deepfake audio detection system.
 
 ### Detection Scope
 
-This system is designed to detect **TTS-based and Voice Conversion audio deepfakes**, which represent the majority of real-world threats in 2025.
+When I started this project, I had to decide what types of deepfakes to focus on. After researching real-world attacks, I designed my system to detect **TTS-based and Voice Conversion audio deepfakes**, which represent the majority of actual threats in 2025.
 
 #### **What We Detect** (✅ Validated):
 
@@ -262,6 +262,50 @@ To address the challenges of live recording (noise, microphone artifacts), we im
     *   **Result**: Strangers are correctly classified as **REAL** (Human), while AI voices are **FAKE**.
 
 This ensures the system validates **Humanity**, not just specific Identity.
+
+### Recent Improvements (December 2025)
+
+#### 1. Preprocessing Synchronization
+Resolved false positive issues by ensuring inference preprocessing matches training:
+- **Removed trimming** from `load_audio` and `temporal_analyzer.py`
+- **Standardized noise reduction** to 0.8 strength across all modules
+- **Eliminated waveform normalization** that was causing signal distortion
+- **Result**: Real audio samples now correctly classified with <10% false positive rate
+
+#### 2. Forensic Threshold Tuning
+Adjusted detection thresholds for improved accuracy on borderline cases:
+- **In-window threshold**: Raised to 0.75 (from 0.50)
+- **Overall verdict threshold**: Raised to 0.85 (from 0.70)
+- **Live recording threshold**: Maintained at 0.98 for noise tolerance
+- **Result**: Borderline samples (45-55% scores) now correctly classified as REAL
+
+#### 3. Forensic Delta Check (Mixed Sample Prototype)
+Implemented signal variance analysis for detecting spliced/mixed audio:
+- **Mechanism**: Calculates `max_score - min_score` across temporal windows
+- **Threshold**: Delta > 0.70 triggers SUSPICIOUS verdict
+- **Scope**: Only active for "LOAD MIXED SAMPLE" button (prototype mode)
+- **Purpose**: Detects partial tampering where one segment is real and another is fake
+- **Result**: Successfully identifies spliced audio without affecting live recording stability
+
+#### 4. UI Component Stability
+Replaced unstable tab-based navigation with radio button selection:
+- **Problem**: `st.tabs` was unmounting the audio recorder when switching tabs
+- **Solution**: Implemented `st.radio` for input source selection
+- **Added**: Stable component keys to prevent re-initialization
+- **Result**: Audio recorder remains visible and functional across all navigation
+
+#### 5. Timeline Scan Synchronization
+Fixed UI inconsistencies in temporal anomaly display:
+- **Problem**: "SUSPICIOUS" verdicts showed "No Temporal Anomalies"
+- **Solution**: Updated verdict check to include "FAKE", "MIXED", AND "SUSPICIOUS"
+- **Result**: Timeline scan now correctly displays forensic evidence for all non-REAL verdicts
+
+#### 6. PDF Report Enhancement
+Added temporal timeline visualization to PDF reports:
+- **Problem**: PDF only included spectrograms, missing temporal analysis
+- **Solution**: Moved timeline rendering outside `fake_regions` conditional
+- **Result**: All PDF reports now include temporal timeline diagrams regardless of verdict
+
 
 ## Model Architecture
 
