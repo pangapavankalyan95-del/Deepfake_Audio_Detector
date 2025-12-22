@@ -14,13 +14,13 @@ seaborn>=0.12.0
 tf-keras-vis>=0.8.0
 
 # Web Application (Streamlit)
-streamlit==1.22.0
+streamlit>=1.32.0
 audio-recorder-streamlit>=0.0.8
 
 # Utilities
 numpy>=1.23.5
 requests>=2.31.0
-protobuf<3.20
+# protobuf<3.20  <-- REMOVED to allow TF 2.x compatibility
 tqdm>=4.65.0
 scikit-learn>=1.2.2
 
