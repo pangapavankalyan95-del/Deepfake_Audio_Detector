@@ -1,4 +1,9 @@
 import os
+import sys
+
+# Change working directory to the script's directory (Critical for Cloud)
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # ===== GPU FIX: Add CUDA to DLL search path BEFORE importing TensorFlow =====
 cuda_path = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.0\bin"
