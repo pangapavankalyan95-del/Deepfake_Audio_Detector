@@ -1,5 +1,5 @@
 # Deep Learning Framework
-tensorflow==2.10.0
+tensorflow>=2.10.0
 scipy>=1.10.0
 
 # Audio Processing
