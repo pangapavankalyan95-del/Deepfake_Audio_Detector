@@ -10,6 +10,7 @@ This document explains the technical details of my deepfake audio detection syst
 5. [Grad-CAM Implementation](#grad-cam-implementation)
 6. [Performance Notes](#performance-notes)
 7. [Code Reference](#code-reference)
+8. [Demo \u0026 Presentation](#demo--presentation)
 
 ---
 
@@ -838,3 +839,11 @@ The reporting engine has been upgraded for clarity and privacy:
 ---
 
 For basic usage, see the main [README.md](README.md)
+## Demo \u0026 Presentation
+
+The project includes a comprehensive demonstration video located in the `presentation` folder.
+
+- **File Path**: `presentation/DEMO_VIDEO_.mp4`
+- **Content**: Walks through live recording, file upload, forensic analysis, and report generation.
+
+This video serves as the primary visual proof of work for the system's operational capabilities.
