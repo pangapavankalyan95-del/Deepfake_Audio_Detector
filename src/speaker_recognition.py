@@ -230,7 +230,7 @@ class SpeakerRecognizer:
             print(f"Error enrolling speaker: {e}")
             return False
     
-    def identify_speaker(self, audio_path: str, threshold: float = 0.75) -> Tuple[Optional[str], float]:
+    def identify_speaker(self, audio_path: str, threshold: float = 0.82) -> Tuple[Optional[str], float]:
         """
         Identify speaker from audio file.
         

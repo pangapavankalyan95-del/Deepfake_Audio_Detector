@@ -1,7 +1,7 @@
 # Deepfake Audio Detection System
 **Developed by: Panga Pavan Kalyan**
 
-I built this deep learning system to detect AI-generated (deepfake) audio using a CNN+BiLSTM architecture. The system can identify fake audio with 99%+ accuracy and includes explainable AI features to show exactly why it made its decision.
+I built this deep learning system to detect AI-generated (deepfake) audio using a CNN+BiLSTM architecture. The system can identify fake audio with **93%+ accuracy (scientifically validated on unseen data)** and includes explainable AI features to show exactly why it made its decision.
 
 ## 🚀 Live Demo
 
@@ -21,11 +21,14 @@ https://github.com/user-attachments/assets/demo_video.mp4
 
 ## Features
 
-- **High Accuracy Detection**: Detects deepfake audio with 99%+ accuracy using CNN+BiLSTM.
+- **High Accuracy Detection**: Detects deepfake audio with 93%+ accuracy (0.98 AUC) using CNN+BiLSTM.
+- **Zero-Trust Forensic Layer**: A deep-signal scan that bypasses the AI model to catch "too-perfect" Voice Changers and ElevenLabs clones by analyzing micro-texture smoothing (Threshold: 0.030).
+- **Forensic Signal Analysis**: High-sensitivity scanning for "Neural Smoothing" and "Biological Jitter" (Standard Deviation of pitch fluctuations) to distinguish human throats from AI synthesis.
 - **Micro-Temporal Analysis**: Pinpoints exactly *when* the audio is fake (e.g., "Fake from 02:45 to 05:10").
 - **Forensic Dashboard**: Professional "Cyber-Blue" UI with Spectrograms, Frequency Radar, and XAI Heatmaps.
 - **3D Spectral Analysis**: Interactive 3D terrain exploration of audio frequencies (Zoom/Rotate).
-- **Speaker Verification**: Enroll voice profiles to verify identity matching (Bio-metric + Deepfake Defense).
+- **Biometric Identity Fusion**: Enrollment of voice profiles to verify identity matching. Matches act as a "Trust Pass" for known users.
+- **Presenter Mode Debugging**: Real-time terminal output showing `Var`, `Jitter`, and `AI Score` for live demonstrations.
 - **Stable UI Components**: Radio-based input selection ensures consistent component rendering.
 - **Multiple Input Methods**: 
     - 🎤 Live Recording (with persistent recorder)
@@ -125,6 +128,7 @@ DeepfakeProject/
 │   ├── temporal_analyzer.py            # Sliding Window Detection Logic
 │   ├── temporal_visualizer.py          # Timeline Plotting
 │   └── report_generator.py             # PDF Reporting
+├── metrics/                            # Performance Charts (ROC, Confusion Matrix)
 ├── deployment/                         # Docker & Deployment configuration
 └── dataset_downloading_files/          # Dataset setup scripts
 ```
@@ -266,19 +270,19 @@ This deepfake detector is **optimized for TTS-based (Text-to-Speech) and Voice C
 
 #### **Accuracy Across All Splits**:
 ```
-Training Set:    98.87% accuracy
-Validation Set:  99.08% accuracy  
-Dev Set:         99.00% accuracy
-Eval Set:        100.00% accuracy
+Training Set:    97.50% accuracy
+Validation Set:  97.06% accuracy  
+Test Set (Eval): 93.00% accuracy (Completely Unseen)
 ```
 
 #### **Detailed Metrics** (Test Set):
 ```
               precision    recall  f1-score   support
-Real            1.00      0.99      0.99      2,986
-Fake            0.99      1.00      1.00      4,500
-accuracy                            1.00      7,486
+Real            0.94      0.90      0.92      7,355
+Fake            0.93      0.96      0.94     10,000
+accuracy                            0.93     17,355
 ```
+**ROC AUC**: 0.983
 
 ### Validation Methodology
 

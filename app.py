@@ -383,7 +383,13 @@ def load_detector_model():
     if not os.path.exists(model_dir):
         return None, None
         
-    # 1. Look for timestamped folders first (new structure)
+    # 1. PRIORITY: Check for production model in root (Relative Path)
+    root_model_path = 'deepfake_detector.keras'
+    if os.path.exists(root_model_path):
+        print(f"Loading production model from: {root_model_path}")
+        return load_model(root_model_path), root_model_path
+
+    # 2. Fallback: Look for timestamped folders
     subdirs = [os.path.join(model_dir, d) for d in os.listdir(model_dir) if os.path.isdir(os.path.join(model_dir, d)) and d.startswith('model_')]
     
     if subdirs:
@@ -395,16 +401,8 @@ def load_detector_model():
             model_path = os.path.join(latest_dir, 'model.keras')
             if os.path.exists(model_path):
                 print(f"Loading model from: {model_path}")
-                return load_model(model_path), latest_dir
+                return load_model(model_path), model_path
             
-    # 2. Fallback to old structure (files directly in models/)
-    model_files = [f for f in os.listdir(model_dir) if f.endswith('.keras')]
-    if model_files:
-        model_files.sort(key=lambda x: os.path.getmtime(os.path.join(model_dir, x)), reverse=True)
-        latest_model = os.path.join(model_dir, model_files[0])
-        print(f"Loading model from: {latest_model}")
-        return load_model(latest_model), model_dir
-        
     return None, None
 
 def predict_audio(model, file_path, apply_nr=True):
@@ -441,7 +439,13 @@ def main():
     
     st.markdown("---")
 
-    model, model_dir = load_detector_model()
+    model, model_path = load_detector_model()
+    
+    # Derive model_dir for metrics/diagnostics
+    if model_path:
+        model_dir = os.path.dirname(model_path) if os.path.dirname(model_path) else "."
+    else:
+        model_dir = None
     
     if model is None:
         st.error("⚠️ SYSTEM ERROR: Model not found. Run training sequence.")
@@ -468,8 +472,10 @@ def main():
         
         diag_col1, diag_col2 = st.columns(2)
         with diag_col1:
-            st.metric("MODEL NAME", os.path.basename(model_dir) if model_dir else "Standard")
-            st.code(f"Location: {model_dir}", language="text")
+            name_disp = os.path.basename(model_path) if model_path else "Standard"
+            path_disp = model_path if model_path else "Default"
+            st.metric("MODEL FILENAME", name_disp)
+            st.code(f"Path: ./{path_disp}", language="text")
         with diag_col2:
             st.metric("FRAMEWORK", "TensorFlow / Keras")
             st.code("Backend: CUDA/GPU Accelerated", language="text")
@@ -682,15 +688,18 @@ def main():
     st.sidebar.title("⚙️ Analysis Settings")
 
     # Show active model
-    if model_dir:
-        model_name = os.path.basename(model_dir)
-        st.sidebar.success(f"🤖 Active Model: **{model_name}**")
-        # Show full model path for verification
-        if os.path.isdir(model_dir):
-            model_file = os.path.join(model_dir, 'model.keras')
+    if model_path:
+        # Get directory for metrics log
+        model_dir = os.path.dirname(model_path) if os.path.dirname(model_path) else 'models'
+        
+        # Determine name: if in root, use filename, else use folder name
+        if not os.path.dirname(model_path):
+             model_name = "Production (Latest)"
         else:
-            model_file = model_dir
-        st.sidebar.caption(f"📁 Path: `{model_file}`")
+             model_name = os.path.basename(os.path.dirname(model_path))
+             
+        st.sidebar.success(f"🤖 Active Model: **{model_name}**")
+        st.sidebar.caption(f"📁 Path: `{model_path}`")
 
     use_noise_reduction = st.sidebar.checkbox("Apply Noise Reduction", value=True)
     show_heatmap = st.sidebar.checkbox("Show Grad-CAM Heatmap", value=True)
@@ -862,6 +871,7 @@ def main():
         
         # 3. Main Analysis Block (Runs if Active)
         if st.session_state.get('analysis_active', False):
+            s_name = None # CRITICAL: Initialize for PDF report
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             y, sr = librosa.load(audio_file_path, sr=16000)
             rms = np.sqrt(np.mean(y**2))
@@ -925,55 +935,83 @@ def main():
                              is_verified_speaker = True
 
                     # ADJUSTED THRESHOLDS: More lenient for live recordings to reduce false positives
-                    if is_live_recording:
-                        # LIVE RECORDING: Critical Override
-                        # Model is sensitive to mic noise, so we use very strict thresholds
-                        
-                        # IDENTITY OVERRIDE: If speaker is known/enrolled, bias HEAVILY towards REAL
-                        if is_verified_speaker:
-                             # ABSOLUTE TRUST: If Bio-ID matches, we trust it over the artifact detector
-                             # This solves the "100% Fake on Noise" issue
-                             verdict = "REAL"
-                             display_score = 0.99 # Verified User = 99% Confidence
-                             # Ensure Explainer sees "Authentic"
-                             score = 0.01 
-                        
-                        # Standard Live Logic (Unknown Speaker)
-                        elif fake_ratio > 0.98:  # Must be ALMOST CERTAINLY fake (>98% of audio)
+                    if is_verified_speaker:
+                        # 3c. ABSOLUTE TRUST: If Bio-ID matches an enrolled user, we TRUST the Identity
+                        # over the forensic detectors (Solves False Positives on friends/high-quality mics)
+                        verdict = "REAL"
+                        display_score = 0.99
+                        score = 0.01 
+                        st.success(f"🪪 **IDENTITY VERIFIED**: This voice matches enrolled user '**{s_name}**'.")
+                    
+                    elif is_live_recording:
+                        # LIVE RECORDING: Standard Live Logic (Unknown Speaker)
+                        if fake_ratio > 0.98:  # Must be ALMOST CERTAINLY fake (>98% of audio)
                             verdict = "FAKE"
                             display_score = max_score
                             score = max_score
                         elif fake_ratio < 0.60:  # Allow up to 60% "noise" as Real for live
                             verdict = "REAL"
-                            display_score = 1.0 - avg_score # Use average for more stable confidence
-                            score = 0.10 # Treat as low fake probability for Explainer
-                            # Removed ambiguity override
+                            display_score = 1.0 - avg_score 
+                            score = 0.10 
                         else:  # 0.60 - 0.98
-                            # For live demo, bias towards REAL unless sure
                             if num_fake_regions <= 2:
                                 verdict = "REAL"
-                                display_score = 1.0 - avg_score # Use average for more stable confidence
-                                score = 0.15 # Low fake probability
+                                display_score = 1.0 - avg_score
+                                score = 0.15
                             else:
-                                verdict = "SUSPICIOUS" # Use easier term than MIXED
+                                verdict = "SUSPICIOUS" 
                                 display_score = max_score
                     else:
                         # UPLOADED / SAMPLES (Universal Honest Logic)
-                        # No longer checks if file is 'real' or 'mixed' button - 100% Signal Driven
-                        if fake_ratio > 0.85:  # Higher threshold (85%) for firm FAKE verdict
+                        if fake_ratio > 0.85: 
                             verdict = "FAKE"
                             display_score = max_score
                             score = max_score
                         elif st.session_state.get('is_mixed_prototype', False) and score_delta > 0.70:
-                            # PROTOTYPE ONLY: Detect splicing via score contrast
                             verdict = "MIXED"
                             display_score = max_score
                             score = max_score
-                        elif fake_ratio < 0.60:  # Allow up to 60% suspicious windows for REAL
-                            verdict = "REAL"
-                            display_score = 1.0 - avg_score
-                            score = avg_score # Actual model score
-                        else:  # Mixed content or uncertain (0.60 - 0.85)
+                        elif fake_ratio < 0.60:
+                            if st.session_state.get('input_type') == "upload":
+                                # --- NEURAL ARTIFACT SCAN (For ElevenLabs / High-Quality TTS) ---
+                                # Global signature check for modern synthesis (Restricted to Uploads)
+                                high_freq_variance = np.var(mel_spec[90:, :])
+                                
+                                # --- NEW: Biological Jitter Check ---
+                                try:
+                                    f0 = librosa.yin(y, fmin=75, fmax=500, sr=16000, frame_length=1024, hop_length=256)
+                                    valid_f0 = f0[f0 > 0]
+                                    pitch_jitter = np.std(np.diff(valid_f0)) if len(valid_f0) > 10 else 1.0
+                                except:
+                                    pitch_jitter = 1.0 
+                                
+                                # Forensic Diagnostic Output
+                                print(f"DEBUG: Var={high_freq_variance:.6f}, Jitter={pitch_jitter:.6f}, Score={max_score:.3f}")
+
+                                # --- ZERO-TRUST FORENSIC OVERRIDE ---
+                                is_extra_smooth = high_freq_variance < 0.030
+                                is_suspicious_texture = high_freq_variance < 0.060
+                                
+                                if is_extra_smooth:
+                                    verdict = "FAKE"
+                                    display_score = 0.95 
+                                    score = 0.95
+                                    st.error("🚨 **ZERO-TRUST OVERRIDE**: Detected 'Extreme Neural Smoothing'. This signal is too mathematically perfect to be biological speech. Classified as GLOBAL FAKE.")
+                                elif is_suspicious_texture and max_score > 0.10:
+                                    verdict = "FAKE"
+                                    display_score = 0.88 
+                                    score = max_score
+                                    st.warning("🕵️ **FORENSIC OVERRIDE**: Detected 'Neural Smoothing' artifacts (Geometric Variance Check). Classified as FAKE.")
+                                else:
+                                    verdict = "REAL"
+                                    display_score = 1.0 - avg_score
+                                    score = avg_score
+                            else:
+                                # Normal Sample (Not an upload): Trusted as REAL if ratio is low
+                                verdict = "REAL"
+                                display_score = 1.0 - avg_score
+                                score = avg_score
+                        else:  # Mixed content (0.60 - 0.85)
                             verdict = "MIXED"
                             display_score = max_score
                             score = max_score
@@ -1320,7 +1358,8 @@ This audio contains inconsistent patterns suggesting partial manipulation or spl
                                             fig_cam, explanation, verdict=verdict,
                                             output_path=pdf_buffer,
                                             fake_regions=fake_regions,
-                                            timeline_fig=timeline_fig_for_pdf
+                                            timeline_fig=timeline_fig_for_pdf,
+                                            speaker_name=s_name
                                          )
                                          
                                          if result_pdf:

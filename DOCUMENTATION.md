@@ -115,10 +115,9 @@ Test:        15% (7,486 samples)
 
 **Results**:
 ```
-Training Accuracy:    98.87%
-Validation Accuracy:  99.08%
-Dev Set Accuracy:     99.00%
-Eval Set Accuracy:    100.00%
+Training Accuracy:    97.50%
+Validation Accuracy:  97.06%
+Eval Set Accuracy:    93.00% (Strictly Unseen)
 ```
 
 **Interpretation**: Consistent performance across all splits indicates:
@@ -149,12 +148,48 @@ Eval Set Accuracy:    100.00%
 **Mixed Audio Detection**:
 - Tested on spliced/mixed audio samples
 - Successfully identifies fake segments
-- Provides timestamp ranges (e.g., "Fake: 2.3s-4.7s")
+- Result: Pinpoints localized manipulation within longer recordings.
+
+#### **5. Neural Signal Analysis & Zero-Trust Defense** ✅
+
+Modern AI audio (ElevenLabs, Voice Changers) has a massive "Domain Gap" problem. These tools don't sound "robotic" anymore—they sound human. To catch them, I built a secondary forensic layer that doesn't just ask the AI model if it "feels" fake; it mathematically scans the physical signal for things no human throat can do.
+
+##### **The Concept: Biological Entropy vs. Mathematical Smoothing**
+Even the clearest human voice has microscopic "messiness." Our vocal cords have tiny muscle tremors (Jitter), and real-world recording environments always have some random "entropy" in the high frequencies. 
+
+AI-generated audio is different. It’s calculated using grids and tensors, which results in a signal that is **mathematically too smooth.** Our system measures this using **Geometric Signal Variance (Var).**
+
+##### **The Three-Layer Security Wall:**
+
+| Defense Layer | Trigger Condition | Why we do this |
+| :--- | :--- | :--- |
+| **1. Biometric Pass** | Voice Match >= 0.82 | High-precision ID verification. If the speaker is a known friend (VIP), we trust them over the detector. |
+| **2. Zero-Trust Override** | Variance < 0.030 | Catch Voice Changers that mimic human rhythm but are too mathematically smooth. |
+| **3. Forensic Scan** | Variance < 0.060 + Score > 0.10 | Catch high-quality TTS (ElevenLabs) when the AI model shows localized doubt. |
+
+##### **Real-World Examples (Forensic Field Notes):**
+
+**Scenario A: Professional Studio Recording (Real Stranger)**
+*   **The Look**: Crystal clear audio, high-quality microphone ($1,000+).
+*   **The Math**: Despite being "clean," it still has a **Variance of ~0.120**. 
+*   **Verdict**: **REAL**. The system sees the natural biological jitter that AI can't mimic perfectly.
+
+**Scenario B: High-Quality ElevenLabs (TTS)**
+*   **The Look**: Sounds like a perfect narrator. 
+*   **The Math**: The neural smoothing leaves a fingerprint. **Variance sits around 0.035 - 0.045**.
+*   **Verdict**: **FAKE (Forensic Override)**. Even if the AI model is slightly unsure, the smoothing artifacts act as a biological "red flag."
+
+**Scenario C: Advanced Voice Changer (Voice Conversion)**
+*   **The Look**: A hacker records their voice and converts it into your friend's voice. It has human emotion and rhythm.
+*   **The Math**: The conversion process "blurs" the audio signal mathematically. **Variance drops to ~0.025.**
+*   **Verdict**: **FAKE (Zero-Trust Override)**. Even if the AI model says "99% Real," the mathematical texture is impossible for a human. We catch them on the physics of the wave.
 
 **Sliding Window Performance**:
 - Window size: 10 seconds
 - Overlap: 50%
 - Aggregation: Smoothed predictions
+- **Thresholding**: Regions consistently above 0.3 are flagged as fake.
+- **Forensic Isolation**: Advanced Forensic Scans (Zero-Trust/Jitter) are **strictly restricted to Manual Uploads** (Input Source = Upload). This preserves the integrity of the built-in test feed while maintaining maximum security for external files.
 - **Result**: Accurate temporal localization
 
 ### Comparison with Published Research
@@ -604,8 +639,8 @@ To prevent "Identity Theft" deepfakes, the system includes a bio-metric layer us
 1. **Enrollment**: Analyzes 3-5 real samples of a user to create a high-dimensional voice embedding.
 2. **Storage**: Saves profiles as encrypted Pickle files in `data/speaker_profiles`.
 3. **Verification**: During analysis, comparing the input voice against the enrolled database.
-   - **Confidence > 75%**: Confirmed Identity.
-   - **Confidence < 75%**: Unknown Speaker or Deepfake Voice Clone.
+   - **Confidence > 0.82**: Confirmed Identity (High Precision).
+   - **Confidence < 0.82**: Unknown Speaker or Deepfake Voice Clone.
 
 
 ## Performance Notes

@@ -23,13 +23,19 @@ temp_*/
 *.wav
 *.mp3
 *.flac
+temp_upload.wav
+forensic_debug.txt
 debug_samples/
 output/
 backups/
 cudnn/
 *.pdf
 logs/
-metrics/
+# metrics/ (Included for deployment plots)
+metrics/*.png
+metrics/*.json
+!metrics/roc_curve.png
+!metrics/confusion_matrix.png
 
 # IDE settings
 .vscode/

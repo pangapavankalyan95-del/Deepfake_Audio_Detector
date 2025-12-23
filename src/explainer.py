@@ -390,7 +390,8 @@ class DeepfakeExplainer:
         return "\n".join(explanation)
     
     def generate_pdf_report(self, audio_path, prediction_score, mel_spectrogram, 
-                           heatmap_fig, explanation, output_path="report.pdf", verdict=None, fake_regions=None, timeline_fig=None):
+                           heatmap_fig, explanation, output_path="report.pdf", 
+                           verdict=None, fake_regions=None, timeline_fig=None, speaker_name=None):
         """
         Generate comprehensive PDF report.
         
@@ -402,6 +403,7 @@ class DeepfakeExplainer:
             explanation: Explanation text
             output_path: Path to save PDF
             verdict: Optional verdict string ("REAL", "FAKE", "MIXED")
+            speaker_name: Optional speaker identity
             
         Returns:
             str: Path to generated PDF
@@ -436,9 +438,13 @@ class DeepfakeExplainer:
             story.append(Spacer(1, 0.2*inch))
             
             # Metadata table
+            # Determine speaker identity string
+            voice_id = speaker_name if speaker_name else "UNKNOWN / NO MATCH"
+
             metadata = [
                 ['Analysis Date:', datetime.now().strftime('%Y-%m-%d %H:%M:%S')],
                 ['Audio File:', os.path.basename(audio_path)],
+                ['Biometric Match:', voice_id],
                 ['System:', 'Deepfake Audio Detector'],
             ]
             
