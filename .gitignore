@@ -9,12 +9,9 @@ venv_gpu/
 env/
 .env
 
-# Datasets and Models (LARGE FILES)
+# Datasets (LARGE FILES)
 data/
 dataset/
-models/
-*.h5
-*.keras
 *.zip
 *.tar.gz
 
