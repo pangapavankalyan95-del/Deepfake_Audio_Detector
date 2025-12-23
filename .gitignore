@@ -49,6 +49,7 @@ Thumbs.db
 
 # Large media files
 *.mp4
+!presentation/DEMO_VIDEO_.mp4
 *.avi
 *.mov
 

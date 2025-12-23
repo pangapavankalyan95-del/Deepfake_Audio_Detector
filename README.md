@@ -11,7 +11,7 @@ I built this deep learning system to detect AI-generated (deepfake) audio using 
 
 ### Demo Video
 
-https://github.com/user-attachments/assets/demo_video.mp4
+[Watch the Demo Video](presentation/DEMO_VIDEO_.mp4)
 
 *Watch the full system in action - from uploading audio to generating forensic reports*
 
